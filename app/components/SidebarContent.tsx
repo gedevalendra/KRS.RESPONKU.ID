@@ -36,23 +36,42 @@ export default function SidebarContent({
   addLecturerTag,
   removeLecturerTag,
 }: SidebarContentProps) {
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const [visitorCount, setVisitorCount] = useState<number | null>(null);
+  const [visitorError, setVisitorError] = useState<boolean>(false);
 
-  // Mengambil dan mengakumulasi jumlah pengunjung secara realtime saat sidebar dimuat
+  // Widget "Online Sekarang" (realtime, per IP unik) & "Total Pengunjung"
+  // (akumulasi). Keduanya dilayani oleh /api/presence (lihat app/api/presence/route.ts):
+  // - Panggilan pertama saat halaman dimuat menaikkan Total Pengunjung +1.
+  // - Setelahnya, kirim heartbeat tiap ~25 detik supaya IP ini tetap
+  //   dianggap "online"; kalau heartbeat berhenti (tab ditutup dll),
+  //   server otomatis menganggapnya offline setelah 60 detik.
   useEffect(() => {
-    async function fetchVisitorCount() {
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    async function pingPresence(isNewVisit: boolean) {
       try {
-        // Menggunakan API publik gratis untuk hitungan visitor (bisa diganti namespace unik web kamu)
-        const res = await fetch('https://api.countapi.xyz/hit/responku-krs-nivalesha/visits');
+        const res = await fetch(`/api/presence${isNewVisit ? '?newVisit=1' : ''}`, { method: 'POST' });
+        if (!res.ok) throw new Error(`Status ${res.status}`);
         const data = await res.json();
-        if (data && typeof data.value === 'number') {
-          setVisitorCount(data.value);
-        }
+        if (cancelled) return;
+        if (typeof data.online === 'number') setOnlineCount(data.online);
+        if (typeof data.total === 'number') setVisitorCount(data.total);
+        setVisitorError(false);
       } catch (err) {
-        console.warn('Gagal memuat jumlah pengunjung:', err);
+        console.warn('Gagal memuat data pengunjung:', err);
+        if (!cancelled) setVisitorError(true);
       }
     }
-    fetchVisitorCount();
+
+    pingPresence(true);
+    intervalId = setInterval(() => pingPresence(false), 25000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
   return (
@@ -138,14 +157,26 @@ export default function SidebarContent({
         </p>
       </div>
 
-      {/* Widget Total Pengunjung Realtime */}
-      <div className="pt-4 border-t border-black/10">
+      {/* Widget Pengunjung: Online Sekarang (realtime, per IP) & Total Akumulasi */}
+      <div className="pt-4 border-t border-black/10 space-y-2">
+        <div className="flex items-center justify-between text-xs text-black/60 bg-black/[0.02] border border-black/10 rounded-lg px-3 py-2.5">
+          <span className="flex items-center gap-1.5 font-medium">
+            <span className="relative flex w-2 h-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75" />
+              <span className="relative inline-flex rounded-full w-2 h-2 bg-green-500" />
+            </span>
+            Online Sekarang
+          </span>
+          <span className="font-mono font-bold text-black">
+            {onlineCount !== null ? onlineCount.toLocaleString('id-ID') : visitorError ? '-' : '...'}
+          </span>
+        </div>
         <div className="flex items-center justify-between text-xs text-black/60 bg-black/[0.02] border border-black/10 rounded-lg px-3 py-2.5">
           <span className="flex items-center gap-1.5 font-medium">
             <Users className="w-4 h-4 text-black" /> Total Pengunjung
           </span>
           <span className="font-mono font-bold text-black">
-            {visitorCount !== null ? visitorCount.toLocaleString('id-ID') : '...'}
+            {visitorCount !== null ? visitorCount.toLocaleString('id-ID') : visitorError ? '-' : '...'}
           </span>
         </div>
       </div>
