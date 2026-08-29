@@ -25,6 +25,14 @@ import {
   Copy,
   Check,
   Info,
+  History,
+  Plus,
+  Minus,
+  ShieldCheck,
+  ShieldAlert,
+  BookmarkCheck,
+  Bookmark,
+  Trash2,
 } from 'lucide-react';
 import ScheduleChatbot from './ScheduleChatbot';
 
@@ -52,9 +60,44 @@ interface UniqueCourseOption {
   lecturers: string[];
 }
 
+interface ChangeReportItem {
+  key: string;
+  code: string;
+  name: string;
+  kelas: string;
+  before?: Course;
+  after?: Course;
+  detail?: string[];
+}
+
+interface ChangeReport {
+  hasChanges: boolean;
+  added: ChangeReportItem[];
+  removed: ChangeReportItem[];
+  changed: ChangeReportItem[];
+}
+
+interface ChosenScheduleRecord {
+  items: Course[];
+  totalSks: number;
+  savedAt: string;
+}
+
+interface ChosenValidation {
+  ok: boolean;
+  messages: string[];
+  totalSksBefore: number;
+  totalSksAfter: number;
+  missingCount: number;
+  conflictCount: number;
+}
+
 const MAX_SKS = 24;
 const STORAGE_URL_KEY = 'papan-jadwal:sheet-url';
-const STORAGE_HASH_KEY = 'papan-jadwal:sheet-hash';
+const STORAGE_COURSES_KEY = 'papan-jadwal:courses-data';
+const STORAGE_SELECTED_KEY = 'papan-jadwal:selected-codes';
+const STORAGE_GOLDLIST_KEY = 'papan-jadwal:goldlist-tags';
+const STORAGE_CHOSEN_KEY = 'papan-jadwal:chosen-schedule';
 const DAY_ORDER = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
 
 // ---------------------------------------------------------------------------
@@ -76,14 +119,6 @@ function isOverlap(c1: Course, c2: Course): boolean {
   const start2 = timeToMinutes(c2['Jam Mulai (Ex : 07:00)']);
   const end2 = timeToMinutes(c2['Jam Berakhir (Ex: 10:00)']);
   return start1 < end2 && start2 < end1;
-}
-
-function hashString(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 31 + str.charCodeAt(i)) | 0;
-  }
-  return hash.toString(36);
 }
 
 function scheduleSks(schedule: Course[]): number {
@@ -119,6 +154,156 @@ function buildScheduleText(schedule: Course[]): string {
   return text;
 }
 
+// Kunci unik satu baris jadwal — dipakai untuk deteksi perubahan & pencocokan
+// jadwal yang sudah dipilih terhadap data terbaru.
+function courseKey(c: Course): string {
+  const code = (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase();
+  const kelas = (c['Kelas'] || '').toString().trim().toUpperCase();
+  return `${code}::${kelas}`;
+}
+
+function scheduleSignature(schedule: Course[]): string {
+  return schedule
+    .map((c) => courseKey(c))
+    .sort()
+    .join('|');
+}
+
+// Bandingkan data lama vs baru: apa yang ditambahkan, dihapus, dan diubah.
+function diffCourses(oldList: Course[], newList: Course[]): ChangeReport {
+  const oldMap = new Map<string, Course>();
+  oldList.forEach((c) => oldMap.set(courseKey(c), c));
+  const newMap = new Map<string, Course>();
+  newList.forEach((c) => newMap.set(courseKey(c), c));
+
+  const added: ChangeReportItem[] = [];
+  const removed: ChangeReportItem[] = [];
+  const changed: ChangeReportItem[] = [];
+
+  newMap.forEach((c, key) => {
+    if (!oldMap.has(key)) {
+      added.push({ key, code: c['Kode Mata Kuliah'] || '', name: c['Nama Mata Kuliah'] || '', kelas: c['Kelas'] || '', after: c });
+    }
+  });
+
+  oldMap.forEach((c, key) => {
+    if (!newMap.has(key)) {
+      removed.push({ key, code: c['Kode Mata Kuliah'] || '', name: c['Nama Mata Kuliah'] || '', kelas: c['Kelas'] || '', before: c });
+    }
+  });
+
+  oldMap.forEach((oldC, key) => {
+    const newC = newMap.get(key);
+    if (!newC) return;
+    const detail: string[] = [];
+
+    if ((oldC['Hari'] || '').trim().toLowerCase() !== (newC['Hari'] || '').trim().toLowerCase()) {
+      detail.push(`Hari berubah dari ${oldC['Hari'] || '-'} menjadi ${newC['Hari'] || '-'}`);
+    }
+    const oldStart = oldC['Jam Mulai (Ex : 07:00)'] || '-';
+    const newStart = newC['Jam Mulai (Ex : 07:00)'] || '-';
+    const oldEnd = oldC['Jam Berakhir (Ex: 10:00)'] || '-';
+    const newEnd = newC['Jam Berakhir (Ex: 10:00)'] || '-';
+    if (oldStart !== newStart || oldEnd !== newEnd) {
+      detail.push(`Jam berubah dari ${oldStart}–${oldEnd} menjadi ${newStart}–${newEnd}`);
+    }
+    if ((oldC['Dosen'] || '').trim() !== (newC['Dosen'] || '').trim()) {
+      detail.push(`Dosen berubah dari ${oldC['Dosen'] || 'belum ditentukan'} menjadi ${newC['Dosen'] || 'belum ditentukan'}`);
+    }
+    const oldRoom = oldC['Ruangan \n(Diisi Fakultas)'] || '-';
+    const newRoom = newC['Ruangan \n(Diisi Fakultas)'] || '-';
+    if (oldRoom !== newRoom) {
+      detail.push(`Ruangan berubah dari ${oldRoom} menjadi ${newRoom}`);
+    }
+    const oldSks = parseInt(String(oldC['SKS'] || '3'), 10) || 3;
+    const newSks = parseInt(String(newC['SKS'] || '3'), 10) || 3;
+    if (oldSks !== newSks) {
+      detail.push(`SKS berubah dari ${oldSks} menjadi ${newSks}`);
+    }
+
+    if (detail.length > 0) {
+      changed.push({
+        key,
+        code: newC['Kode Mata Kuliah'] || '',
+        name: newC['Nama Mata Kuliah'] || '',
+        kelas: newC['Kelas'] || '',
+        before: oldC,
+        after: newC,
+        detail,
+      });
+    }
+  });
+
+  return { hasChanges: added.length > 0 || removed.length > 0 || changed.length > 0, added, removed, changed };
+}
+
+// Cek apakah jadwal yang sudah "dipilih untuk digunakan" masih valid setelah
+// ada data baru: apakah masih ada, apakah jamnya berubah, apakah jadi bentrok,
+// dan apakah total SKS-nya berubah.
+function validateChosenSchedule(chosen: Course[], newCourses: Course[], prevTotalSks: number): ChosenValidation {
+  const newMap = new Map<string, Course>();
+  newCourses.forEach((c) => newMap.set(courseKey(c), c));
+
+  const messages: string[] = [];
+  const resolved: Course[] = [];
+  let missingCount = 0;
+
+  chosen.forEach((item) => {
+    const match = newMap.get(courseKey(item));
+    if (!match) {
+      missingCount++;
+      messages.push(`"${item['Nama Mata Kuliah']}" (Kelas ${item['Kelas'] || '-'}) sudah tidak tersedia di jadwal terbaru.`);
+      return;
+    }
+    resolved.push(match);
+
+    const oldStart = item['Jam Mulai (Ex : 07:00)'];
+    const newStart = match['Jam Mulai (Ex : 07:00)'];
+    const oldEnd = item['Jam Berakhir (Ex: 10:00)'];
+    const newEnd = match['Jam Berakhir (Ex: 10:00)'];
+    const oldDay = (item['Hari'] || '').trim().toLowerCase();
+    const newDay = (match['Hari'] || '').trim().toLowerCase();
+    if (oldStart !== newStart || oldEnd !== newEnd || oldDay !== newDay) {
+      messages.push(`Jadwal "${item['Nama Mata Kuliah']}" berubah menjadi ${match['Hari']}, ${newStart}–${newEnd}.`);
+    }
+  });
+
+  let conflictCount = 0;
+  for (let i = 0; i < resolved.length; i++) {
+    for (let j = i + 1; j < resolved.length; j++) {
+      if (isOverlap(resolved[i], resolved[j])) {
+        conflictCount++;
+        messages.push(
+          `Bentrok baru: "${resolved[i]['Nama Mata Kuliah']}" dengan "${resolved[j]['Nama Mata Kuliah']}" pada hari ${resolved[i]['Hari']}.`,
+        );
+      }
+    }
+  }
+
+  const totalSksAfter = scheduleSks(resolved) + missingCount * 0; // SKS mk yang hilang tidak dihitung
+  if (totalSksAfter !== prevTotalSks) {
+    messages.push(`Total SKS jadwal ini berubah dari ${prevTotalSks} menjadi ${totalSksAfter}.`);
+  }
+
+  const ok = missingCount === 0 && conflictCount === 0;
+  if (ok && messages.length === 0) {
+    messages.push('Jadwal yang sedang Anda gunakan masih aman — tidak ada perubahan maupun bentrok.');
+  }
+
+  return { ok, messages, totalSksBefore: prevTotalSks, totalSksAfter, missingCount, conflictCount };
+}
+
+function loadJSON<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function AdvancedScheduleApp() {
   const { data: session } = useSession();
   const [sheetUrl, setSheetUrl] = useState<string>('');
@@ -142,18 +327,52 @@ export default function AdvancedScheduleApp() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
 
+  // Perubahan data spreadsheet sejak sinkron terakhir (mk ditambah/dihapus/diubah)
+  const [changeReport, setChangeReport] = useState<ChangeReport | null>(null);
+  // Mata kuliah yang sebelumnya dipilih tapi sekarang hilang dari spreadsheet
+  const [droppedSelection, setDroppedSelection] = useState<string[]>([]);
+
+  // Jadwal yang sudah "dikunci" untuk dipakai, plus status validasinya
+  const [chosenSchedule, setChosenSchedule] = useState<ChosenScheduleRecord | null>(null);
+  const [chosenValidation, setChosenValidation] = useState<ChosenValidation | null>(null);
+
   // -------------------------------------------------------------------------
-  // Muat link tersimpan saat pertama kali dibuka, lalu sinkron ulang otomatis
+  // Muat semua state tersimpan saat pertama kali dibuka, lalu sinkron ulang
   // -------------------------------------------------------------------------
   useEffect(() => {
-    const savedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) : null;
+    if (typeof window === 'undefined') return;
+
+    const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
+    const savedCourses = loadJSON<Course[]>(STORAGE_COURSES_KEY) || [];
+    const savedSelected = loadJSON<string[]>(STORAGE_SELECTED_KEY) || [];
+    const savedGoldlist = loadJSON<string[]>(STORAGE_GOLDLIST_KEY) || [];
+    const savedChosen = loadJSON<ChosenScheduleRecord>(STORAGE_CHOSEN_KEY);
+
+    if (savedCourses.length > 0) setCourses(savedCourses);
+    if (savedSelected.length > 0) setSelectedCourseCodes(savedSelected);
+    if (savedGoldlist.length > 0) setGoldlistTags(savedGoldlist);
+    if (savedChosen) setChosenSchedule(savedChosen);
+
     if (savedUrl) {
       setSheetUrl(savedUrl);
       setIsLinkLocked(true);
-      fetchSheetFromUrl(savedUrl);
+      // Kirim data lama secara eksplisit supaya proses diff akurat sejak awal
+      fetchSheetFromUrl(savedUrl, savedCourses, savedSelected, savedChosen);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Simpan pilihan mata kuliah & dosen favorit setiap kali berubah, supaya
+  // tidak hilang walau halaman di-refresh (tanpa perlu sinkron ulang).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_SELECTED_KEY, JSON.stringify(selectedCourseCodes));
+  }, [selectedCourseCodes]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(STORAGE_GOLDLIST_KEY, JSON.stringify(goldlistTags));
+  }, [goldlistTags]);
 
   const convertToCsvUrl = (url: string) => {
     if (url.includes('docs.google.com/spreadsheets')) {
@@ -165,7 +384,12 @@ export default function AdvancedScheduleApp() {
     return url;
   };
 
-  const fetchSheetFromUrl = async (urlOverride?: string) => {
+  const fetchSheetFromUrl = async (
+    urlOverride?: string,
+    prevCoursesOverride?: Course[],
+    prevSelectedOverride?: string[],
+    prevChosenOverride?: ChosenScheduleRecord | null,
+  ) => {
     const urlToUse = urlOverride ?? sheetUrl;
     if (!urlToUse) return;
     setIsLoading(true);
@@ -190,25 +414,47 @@ export default function AdvancedScheduleApp() {
       const rawData = XLSX.utils.sheet_to_json<any>(ws, { range: 12 });
       const cleanedData: Course[] = rawData.filter((item) => item['Nama Mata Kuliah'] && item['Hari']);
 
-      // Bandingkan hash data baru dengan hash tersimpan untuk mendeteksi perubahan
-      const newHash = hashString(JSON.stringify(cleanedData));
-      const prevHash = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_HASH_KEY) : null;
-      if (prevHash === null) {
+      // Data & pilihan sebelumnya, dipakai sebagai basis perbandingan
+      const prevCourses = prevCoursesOverride ?? courses;
+      const prevSelected = prevSelectedOverride ?? selectedCourseCodes;
+      const prevChosen = prevChosenOverride !== undefined ? prevChosenOverride : chosenSchedule;
+
+      const isFirstSync = prevCourses.length === 0;
+      const diff = diffCourses(prevCourses, cleanedData);
+
+      if (isFirstSync) {
         setUpdateBadge('first');
-      } else if (prevHash === newHash) {
+        setChangeReport(null);
+      } else if (!diff.hasChanges) {
         setUpdateBadge('same');
+        setChangeReport(null);
       } else {
         setUpdateBadge('changed');
+        setChangeReport(diff);
       }
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_URL_KEY, urlToUse);
-        localStorage.setItem(STORAGE_HASH_KEY, newHash);
+      // Mata kuliah yang sudah dipilih tapi sekarang tidak ada lagi di spreadsheet
+      const newCodesSet = new Set(cleanedData.map((c) => (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase()));
+      const stillValidSelected = prevSelected.filter((code) => newCodesSet.has(code.toUpperCase()));
+      const dropped = prevSelected.filter((code) => !newCodesSet.has(code.toUpperCase()));
+      setSelectedCourseCodes(stillValidSelected);
+      setDroppedSelection(dropped);
+
+      // Validasi ulang jadwal yang sedang "dipakai" terhadap data terbaru
+      if (prevChosen) {
+        const validation = validateChosenSchedule(prevChosen.items, cleanedData, prevChosen.totalSks);
+        setChosenValidation(validation);
+      } else {
+        setChosenValidation(null);
       }
 
       setCourses(cleanedData);
-      setSelectedCourseCodes([]);
       setIsLinkLocked(true);
+
+      localStorage.setItem(STORAGE_URL_KEY, urlToUse);
+      localStorage.setItem(STORAGE_COURSES_KEY, JSON.stringify(cleanedData));
+      localStorage.setItem(STORAGE_SELECTED_KEY, JSON.stringify(stillValidSelected));
+
       setIsLoading(false);
     } catch (error) {
       alert('Gagal mengambil data dari link. Pastikan link Google Sheets publik atau Anda sudah login dengan akun berizin.');
@@ -381,10 +627,7 @@ export default function AdvancedScheduleApp() {
       const groups = buildGroups(attempt);
       const combo = runBacktrack(groups);
       if (combo) {
-        const signature = combo
-          .map((c) => `${c['Kode Mata Kuliah']}-${c['Kelas']}`)
-          .sort()
-          .join('|');
+        const signature = scheduleSignature(combo);
         if (!seen.has(signature)) {
           seen.add(signature);
           options.push(combo);
@@ -411,16 +654,60 @@ export default function AdvancedScheduleApp() {
 
   const currentSchedule = scheduleOptions[activeOption] || [];
 
-  const handleCopyText = async () => {
-    if (currentSchedule.length === 0) return;
+  const handleCopyText = async (schedule: Course[]) => {
+    if (schedule.length === 0) return;
     try {
-      await navigator.clipboard.writeText(buildScheduleText(currentSchedule));
+      await navigator.clipboard.writeText(buildScheduleText(schedule));
       setCopyStatus(true);
       setTimeout(() => setCopyStatus(false), 2000);
     } catch {
       alert('Gagal menyalin teks. Salin manual dari hasil di bawah.');
     }
   };
+
+  // Tandai satu opsi jadwal sebagai "jadwal yang dipakai" — tersimpan permanen
+  // sampai diganti atau dibatalkan secara manual.
+  const handleUseSchedule = (schedule: Course[]) => {
+    const record: ChosenScheduleRecord = {
+      items: schedule,
+      totalSks: scheduleSks(schedule),
+      savedAt: new Date().toISOString(),
+    };
+    setChosenSchedule(record);
+    setChosenValidation({
+      ok: true,
+      messages: ['Jadwal ini baru saja dipilih sebagai jadwal yang digunakan.'],
+      totalSksBefore: record.totalSks,
+      totalSksAfter: record.totalSks,
+      missingCount: 0,
+      conflictCount: 0,
+    });
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_CHOSEN_KEY, JSON.stringify(record));
+    }
+  };
+
+  const handleClearChosenSchedule = () => {
+    setChosenSchedule(null);
+    setChosenValidation(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_CHOSEN_KEY);
+    }
+  };
+
+  const chosenSignature = chosenSchedule ? scheduleSignature(chosenSchedule.items) : null;
+
+  // Tampilan jadwal terpakai memakai data TERBARU (kalau masih ada), supaya
+  // jam/dosen/ruangan yang ditampilkan selalu mengikuti spreadsheet terkini.
+  const chosenScheduleResolved = useMemo(() => {
+    if (!chosenSchedule) return [];
+    const courseMap = new Map<string, Course>();
+    courses.forEach((c) => courseMap.set(courseKey(c), c));
+    return chosenSchedule.items.map((item) => {
+      const match = courseMap.get(courseKey(item));
+      return match ? { ...match, __missing: false } : { ...item, __missing: true };
+    });
+  }, [chosenSchedule, courses]);
 
   // -------------------------------------------------------------------------
   // Turunan kecil untuk tampilan
@@ -446,8 +733,16 @@ export default function AdvancedScheduleApp() {
           dosen: c['Dosen'],
         })),
       })),
+      jadwalDigunakan: chosenSchedule
+        ? {
+            totalSks: chosenSchedule.totalSks,
+            disimpanPada: chosenSchedule.savedAt,
+            statusTerbaru: chosenValidation ? (chosenValidation.ok ? 'aman' : 'perlu-perhatian') : 'belum-dicek',
+            pesan: chosenValidation?.messages || [],
+          }
+        : null,
     }),
-    [uniqueCourseList, selectedCourseCodes, totalSelectedSks, goldlistTags, scheduleOptions],
+    [uniqueCourseList, selectedCourseCodes, totalSelectedSks, goldlistTags, scheduleOptions, chosenSchedule, chosenValidation],
   );
 
   return (
@@ -556,7 +851,7 @@ export default function AdvancedScheduleApp() {
               <h2 className="font-bold text-base">1. Hubungkan Spreadsheet</h2>
             </div>
             <p className="text-sm text-black/50 mb-4">
-              Tempel link Google Sheets berisi daftar mata kuliah. Setelah tersinkron, link ini disimpan otomatis agar tidak perlu ditempel ulang.
+              Tempel link Google Sheets berisi daftar mata kuliah. Setelah tersinkron, link ini disimpan otomatis agar tidak perlu ditempel ulang. Mata kuliah yang sudah Anda pilih juga akan tetap tersimpan walau disinkronkan ulang.
             </p>
 
             {isLinkLocked ? (
@@ -615,10 +910,161 @@ export default function AdvancedScheduleApp() {
             )}
             {updateBadge === 'changed' && (
               <p className="mt-3 inline-flex text-xs font-medium text-black bg-black/5 border border-dashed border-black/30 rounded-full px-3 py-1.5 items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Ada perubahan pada spreadsheet — data sudah diperbarui.
+                <AlertTriangle className="w-3.5 h-3.5" /> Ada perubahan pada spreadsheet — lihat detail di bawah.
+              </p>
+            )}
+
+            {droppedSelection.length > 0 && (
+              <p className="mt-2 text-xs text-black/70 bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
+                {droppedSelection.length} mata kuliah yang sebelumnya Anda pilih sudah tidak ada di spreadsheet dan otomatis dihapus dari pilihan: {droppedSelection.join(', ')}.
               </p>
             )}
           </section>
+
+          {/* Panel perubahan detail — ditambah / dihapus / diubah */}
+          {changeReport && changeReport.hasChanges && (
+            <section className="bg-white border border-black/15 rounded-xl p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4" />
+                  <h2 className="font-bold text-base">Perubahan Sejak Sinkron Terakhir</h2>
+                </div>
+                <button
+                  onClick={() => setChangeReport(null)}
+                  className="p-1.5 rounded-md hover:bg-black/5 cursor-pointer flex-shrink-0"
+                  aria-label="Tutup panel perubahan"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {changeReport.added.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5" /> Ditambahkan ({changeReport.added.length})
+                    </p>
+                    <ul className="space-y-1.5">
+                      {changeReport.added.map((item) => (
+                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
+                          <span className="font-semibold">{item.name}</span>{' '}
+                          <span className="text-black/50 text-xs">
+                            ({item.code} · Kelas {item.kelas || '-'} · {item.after?.['Hari']}, {item.after?.['Jam Mulai (Ex : 07:00)']}–{item.after?.['Jam Berakhir (Ex: 10:00)']})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {changeReport.removed.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
+                      <Minus className="w-3.5 h-3.5" /> Dihapus ({changeReport.removed.length})
+                    </p>
+                    <ul className="space-y-1.5">
+                      {changeReport.removed.map((item) => (
+                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
+                          <span className="font-semibold">{item.name}</span>{' '}
+                          <span className="text-black/50 text-xs">
+                            ({item.code} · Kelas {item.kelas || '-'} · dulunya {item.before?.['Hari']}, {item.before?.['Jam Mulai (Ex : 07:00)']}–{item.before?.['Jam Berakhir (Ex: 10:00)']})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {changeReport.changed.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
+                      <Pencil className="w-3.5 h-3.5" /> Diubah ({changeReport.changed.length})
+                    </p>
+                    <ul className="space-y-1.5">
+                      {changeReport.changed.map((item) => (
+                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
+                          <span className="font-semibold">{item.name}</span>{' '}
+                          <span className="text-black/50 text-xs">
+                            ({item.code} · Kelas {item.kelas || '-'})
+                          </span>
+                          <ul className="mt-1 ml-4 list-disc text-xs text-black/60 space-y-0.5">
+                            {item.detail?.map((d, i) => (
+                              <li key={i}>{d}</li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Panel status jadwal yang sedang dipakai */}
+          {chosenSchedule && (
+            <section
+              className={`rounded-xl p-5 sm:p-6 border ${
+                chosenValidation && !chosenValidation.ok ? 'border-black bg-black/[0.02]' : 'border-black/15 bg-white'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  {chosenValidation && !chosenValidation.ok ? (
+                    <ShieldAlert className="w-4 h-4" />
+                  ) : (
+                    <ShieldCheck className="w-4 h-4" />
+                  )}
+                  <h2 className="font-bold text-base">Jadwal yang Sedang Digunakan</h2>
+                </div>
+                <button
+                  onClick={handleClearChosenSchedule}
+                  className="text-xs border border-black/15 hover:bg-black/5 px-3 py-1.5 rounded-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Batalkan Pilihan
+                </button>
+              </div>
+
+              {chosenValidation && (
+                <ul className="space-y-1.5 mb-4">
+                  {chosenValidation.messages.map((m, i) => (
+                    <li key={i} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
+                      {m}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="text-xs text-black/50 mb-3">
+                {chosenScheduleResolved.length} mata kuliah · {chosenValidation ? chosenValidation.totalSksAfter : chosenSchedule.totalSks} SKS
+                {chosenValidation && chosenValidation.totalSksBefore !== chosenValidation.totalSksAfter
+                  ? ` (sebelumnya ${chosenValidation.totalSksBefore} SKS)`
+                  : ''}
+              </p>
+
+              <div className="space-y-2">
+                {chosenScheduleResolved.map((item: any, idx) => (
+                  <div
+                    key={idx}
+                    className={`border rounded-lg p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 ${
+                      item.__missing ? 'border-black border-dashed bg-black/[0.03]' : 'border-black/10'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-semibold">{item['Nama Mata Kuliah']}</span>{' '}
+                      <span className="text-black/50 text-xs">({item['Kode Mata Kuliah']} · Kelas {item['Kelas'] || '-'})</span>
+                      {item.__missing && <span className="ml-2 text-xs font-medium">— sudah tidak tersedia</span>}
+                    </div>
+                    {!item.__missing && (
+                      <span className="text-xs text-black/60 font-mono">
+                        {item['Hari']} · {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Step 2 — Pilih mata kuliah */}
           {uniqueCourseList.length > 0 && (
@@ -715,29 +1161,50 @@ export default function AdvancedScheduleApp() {
                   </h2>
                   <p className="text-sm text-white/50 mt-0.5">{currentSchedule.length} mata kuliah · {scheduleSks(currentSchedule)} SKS</p>
                 </div>
-                <button
-                  onClick={handleCopyText}
-                  className="border border-white/25 hover:bg-white/10 px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer flex-shrink-0"
-                >
-                  {copyStatus ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copyStatus ? 'Disalin!' : 'Salin sebagai Teks'}
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleUseSchedule(currentSchedule)}
+                    className={`px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer border ${
+                      chosenSignature === scheduleSignature(currentSchedule)
+                        ? 'bg-white text-black border-white'
+                        : 'border-white/25 hover:bg-white/10'
+                    }`}
+                  >
+                    {chosenSignature === scheduleSignature(currentSchedule) ? (
+                      <BookmarkCheck className="w-4 h-4" />
+                    ) : (
+                      <Bookmark className="w-4 h-4" />
+                    )}
+                    {chosenSignature === scheduleSignature(currentSchedule) ? 'Sedang Digunakan' : 'Gunakan Jadwal Ini'}
+                  </button>
+                  <button
+                    onClick={() => handleCopyText(currentSchedule)}
+                    className="border border-white/25 hover:bg-white/10 px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer"
+                  >
+                    {copyStatus ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copyStatus ? 'Disalin!' : 'Salin sebagai Teks'}
+                  </button>
+                </div>
               </div>
 
-              {/* Tab opsi, hanya muncul kalau ada lebih dari 1 opsi */}
+              {/* Tab opsi, hanya muncul kalau ada lebih dari 1 opsi — bisa dipakai untuk membandingkan */}
               {scheduleOptions.length > 1 && (
                 <div className="flex gap-2 mb-4 flex-wrap">
-                  {scheduleOptions.map((opt, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setActiveOption(i)}
-                      className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition cursor-pointer border ${
-                        activeOption === i ? 'bg-white text-black border-white' : 'border-white/25 text-white/70 hover:bg-white/10'
-                      }`}
-                    >
-                      Opsi {String.fromCharCode(65 + i)} · {scheduleSks(opt)} SKS
-                    </button>
-                  ))}
+                  {scheduleOptions.map((opt, i) => {
+                    const isChosenOne = chosenSignature === scheduleSignature(opt);
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setActiveOption(i)}
+                        className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition cursor-pointer border flex items-center gap-1.5 ${
+                          activeOption === i ? 'bg-white text-black border-white' : 'border-white/25 text-white/70 hover:bg-white/10'
+                        }`}
+                      >
+                        {isChosenOne && <BookmarkCheck className="w-3.5 h-3.5" />}
+                        Opsi {String.fromCharCode(65 + i)} · {scheduleSks(opt)} SKS
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -815,7 +1282,7 @@ export default function AdvancedScheduleApp() {
       {/* ===================== FOOTER ===================== */}
       <footer className="border-t border-black/10 mt-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-black/50">
-          <p>© {new Date().getFullYear()} RESPONKU KRS. Dibuat untuk mempermudah penyusunan KRS.</p>
+          <p>© {new Date().getFullYear()} RESPONKU KRS by Nivalesha</p>
           <p className="font-mono">Batas maksimum: {MAX_SKS} SKS / semester</p>
         </div>
       </footer>

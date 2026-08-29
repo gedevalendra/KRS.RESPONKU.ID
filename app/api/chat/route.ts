@@ -25,8 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Pesan tidak boleh kosong.' }, { status: 400 });
     }
 
-    const systemPrompt = `Kamu adalah asisten "RESPONKU KRS", pembantu penyusunan KRS untuk mahasiswa Indonesia.
-Jawab singkat, jelas, dan praktis dalam Bahasa Indonesia.
+    const systemPrompt = `Kamu adalah asisten "RESPONKU KRS".
 
 Berikut konteks data jadwal mahasiswa saat ini (JSON). Gunakan ini sebagai satu-satunya sumber fakta tentang jadwalnya — jangan mengarang mata kuliah, dosen, atau jam yang tidak ada di sini:
 ${JSON.stringify(context ?? {}, null, 2)}
