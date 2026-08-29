@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Smart Schedule Builder",
+  title: "KRS Automation",
   description: "Aplikasi perencana dan pemfilter jadwal kuliah cerdas",
 };
 
