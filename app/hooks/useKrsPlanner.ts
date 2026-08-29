@@ -4,17 +4,6 @@
 // Hook ini menyimpan SEMUA state & logika bisnis halaman KRS planner:
 // sinkronisasi spreadsheet, pilihan mata kuliah, dosen favorit, algoritma
 // penyusunan jadwal, dan jadwal yang "dipakai".
-//
-// Kenapa digabung jadi satu hook (bukan dipecah per-state) dan bukan
-// ditaruh di page.tsx?
-// - Banyak bagian saling bergantung (mis. sinkron ulang spreadsheet perlu
-//   tahu pilihan mata kuliah sebelumnya & jadwal yang sedang dipakai untuk
-//   divalidasi ulang). Memecahnya jadi 3-4 hook terpisah malah menambah
-//   kerumitan "siapa passing state ke siapa".
-// - page.tsx jadi murni presentasi: tinggal `const krs = useKrsPlanner()`
-//   lalu oper ke komponen-komponen kecil. Kalau mau menambah/menghapus
-//   fitur (mis. hapus fitur "dosen favorit"), cukup edit hook ini —
-//   file lain (komponen UI) tidak perlu disentuh kecuali tampilannya.
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -44,6 +33,7 @@ import {
   STORAGE_REALTIME_KEY,
   STORAGE_EMAIL_KEY,
   STORAGE_SCHEDULE_STATE_KEY,
+  STORAGE_SHEET_TAB_KEY,
   DEFAULT_REALTIME_INTERVAL_MS,
   MIN_REALTIME_INTERVAL_MS,
 } from '../lib/constants';
@@ -61,22 +51,6 @@ import {
 import { diffCourses, validateChosenSchedule } from '../lib/schedule-diff';
 import { generateSchedules, generateSchedulesWithDayOff } from '../lib/schedule-generator';
 
-// ---------------------------------------------------------------------------
-// Helper: sama seperti useEffect biasa, tapi SENGAJA tidak dijalankan pada
-// render pertama (mount).
-//
-// Kenapa perlu ini? Semua state yang "auto-save ke localStorage tiap kali
-// berubah" (selectedCourseCodes, dayOffSettings, dst) mulai dari nilai
-// default ([]/false/dst) saat komponen pertama kali dirender — data asli
-// dari localStorage baru diterapkan lewat setState di efek load (yang
-// jalan di render yang sama, tapi hasilnya baru terlihat di render
-// BERIKUTNYA). Tanpa guard ini, efek "auto-save" versi pertama akan sempat
-// menimpa localStorage dengan nilai default kosong sebelum data hasil
-// load benar-benar tersimpan ulang — inilah yang menyebabkan
-// checkbox mata kuliah, pengaturan realtime, dsb hilang saat halaman
-// di-refresh. Dengan melewati render pertama, auto-save baru aktif
-// setelah data dari localStorage sudah diterapkan ke state.
-// ---------------------------------------------------------------------------
 function useSkipMountEffect(effect: () => void, deps: unknown[]) {
   const isFirstRender = useRef(true);
   useEffect(() => {
@@ -92,7 +66,8 @@ function useSkipMountEffect(effect: () => void, deps: unknown[]) {
 export function useKrsPlanner() {
   const { data: session } = useSession();
   const [isMounted, setIsMounted] = useState(false);
-// --- Sinkronisasi spreadsheet -------------------------------------------
+
+  // --- Sinkronisasi spreadsheet & tab aktif --------------------------------
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem(STORAGE_URL_KEY) || '';
@@ -103,6 +78,12 @@ export function useKrsPlanner() {
     return loadJSON<Course[]>(STORAGE_COURSES_KEY) || [];
   });
   
+  const [sheetTabs, setSheetTabs] = useState<string[]>([]);
+  const [activeTabName, setActiveTabName] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(STORAGE_SHEET_TAB_KEY) || '';
+  });
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isLinkLocked, setIsLinkLocked] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -161,6 +142,7 @@ export function useKrsPlanner() {
     const savedRealtime = loadJSON<RealtimeSettings>(STORAGE_REALTIME_KEY);
     const savedEmail = loadJSON<EmailReminderSettings>(STORAGE_EMAIL_KEY);
     const savedScheduleState = loadJSON<ScheduleState>(STORAGE_SCHEDULE_STATE_KEY);
+    const savedTab = localStorage.getItem(STORAGE_SHEET_TAB_KEY) || '';
 
     if (savedCourses.length > 0) setCourses(savedCourses);
     if (savedSelected.length > 0) setSelectedCourseCodes(savedSelected);
@@ -168,8 +150,8 @@ export function useKrsPlanner() {
     if (savedChosen) setChosenSchedule(savedChosen);
     if (savedDayOff) setDayOffSettings(savedDayOff);
     if (savedCustomPicks) setCustomPicks(savedCustomPicks);
+    if (savedTab) setActiveTabName(savedTab);
     if (savedRealtime) {
-      // Jaga-jaga: pastikan interval tidak pernah di bawah batas minimum testing
       setRealtimeSettings({ ...savedRealtime, intervalMs: Math.max(savedRealtime.intervalMs, MIN_REALTIME_INTERVAL_MS) });
     }
     if (savedEmail) setEmailReminder(savedEmail);
@@ -178,20 +160,15 @@ export function useKrsPlanner() {
       setActiveOption(savedScheduleState.activeOption || 0);
     }
 
-    if (savedUrl) {
+if (savedUrl) {
       setSheetUrl(savedUrl);
       setIsLinkLocked(true);
-      // Kirim data lama secara eksplisit supaya proses diff akurat sejak awal
-      fetchSheetFromUrl(savedUrl, savedCourses, savedSelected, savedChosen);
+      // Sertakan savedTab agar daftar tab & isi data sheet terbaca sesuai pilihan terakhir
+      fetchSheetFromUrl(savedUrl, savedTab || undefined, savedCourses, savedSelected, savedChosen);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Simpan pilihan mata kuliah, dosen favorit, dan pengaturan-pengaturan
-  // fitur lain setiap kali berubah, supaya tidak hilang walau halaman
-  // di-refresh (tanpa perlu sinkron ulang). Pakai useSkipMountEffect (bukan
-  // useEffect biasa) supaya render pertama TIDAK ikut menimpa localStorage
-  // dengan nilai default sebelum data hasil load di atas benar-benar aktif.
   useSkipMountEffect(() => {
     saveJSON(STORAGE_SELECTED_KEY, selectedCourseCodes);
   }, [selectedCourseCodes]);
@@ -216,9 +193,12 @@ export function useKrsPlanner() {
     saveJSON(STORAGE_EMAIL_KEY, emailReminder);
   }, [emailReminder]);
 
-  // Simpan hasil "Susun Jadwal Otomatis" yang sedang ditampilkan, supaya
-  // kalau halaman di-refresh sebelum sempat diklik "Gunakan Jadwal Ini",
-  // jadwal yang tadi sudah disusun tidak hilang begitu saja.
+  useSkipMountEffect(() => {
+    if (activeTabName) {
+      localStorage.setItem(STORAGE_SHEET_TAB_KEY, activeTabName);
+    }
+  }, [activeTabName]);
+
   useSkipMountEffect(() => {
     if (scheduleOptions.length > 0) {
       saveJSON(STORAGE_SCHEDULE_STATE_KEY, { options: scheduleOptions, activeOption });
@@ -228,10 +208,11 @@ export function useKrsPlanner() {
   }, [scheduleOptions, activeOption]);
 
   // -------------------------------------------------------------------------
-  // Sinkronisasi spreadsheet
+  // Sinkronisasi spreadsheet (mendukung pilihan tab)
   // -------------------------------------------------------------------------
   const fetchSheetFromUrl = async (
     urlOverride?: string,
+    tabOverride?: string,
     prevCoursesOverride?: Course[],
     prevSelectedOverride?: string[],
     prevChosenOverride?: ChosenScheduleRecord | null,
@@ -257,12 +238,16 @@ export function useKrsPlanner() {
 
       const arrayBuffer = await response.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
+      const allTabs = wb.SheetNames;
+      setSheetTabs(allTabs);
+
+      const targetTab = tabOverride ?? (activeTabName && allTabs.includes(activeTabName) ? activeTabName : allTabs[0]);
+      setActiveTabName(targetTab);
+
+      const ws = wb.Sheets[targetTab];
       const rawData = XLSX.utils.sheet_to_json<any>(ws, { range: 12 });
       const cleanedData: Course[] = rawData.filter((item) => item['Nama Mata Kuliah'] && item['Hari']);
 
-      // Data & pilihan sebelumnya, dipakai sebagai basis perbandingan
       const prevCourses = prevCoursesOverride ?? courses;
       const prevSelected = prevSelectedOverride ?? selectedCourseCodes;
       const prevChosen = prevChosenOverride !== undefined ? prevChosenOverride : chosenSchedule;
@@ -279,19 +264,15 @@ export function useKrsPlanner() {
       } else {
         setUpdateBadge('changed');
         setChangeReport(diff);
-        // Bukan sinkron pertama & memang ada perubahan → ini yang perlu
-        // dinotifikasi ke email pengguna (kalau fitur pengingat diaktifkan).
         notifyScheduleChangeByEmail(diff);
       }
 
-      // Mata kuliah yang sudah dipilih tapi sekarang tidak ada lagi di spreadsheet
       const newCodesSet = new Set(cleanedData.map((c) => (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase()));
       const stillValidSelected = prevSelected.filter((code) => newCodesSet.has(code.toUpperCase()));
       const dropped = prevSelected.filter((code) => !newCodesSet.has(code.toUpperCase()));
       setSelectedCourseCodes(stillValidSelected);
       setDroppedSelection(dropped);
 
-      // Validasi ulang jadwal yang sedang "dipakai" terhadap data terbaru
       if (prevChosen) {
         setChosenValidation(validateChosenSchedule(prevChosen.items, cleanedData, prevChosen.totalSks));
       } else {
@@ -302,6 +283,7 @@ export function useKrsPlanner() {
       setIsLinkLocked(true);
 
       localStorage.setItem(STORAGE_URL_KEY, urlToUse);
+      localStorage.setItem(STORAGE_SHEET_TAB_KEY, targetTab);
       saveJSON(STORAGE_COURSES_KEY, cleanedData);
       saveJSON(STORAGE_SELECTED_KEY, stillValidSelected);
 
@@ -309,9 +291,6 @@ export function useKrsPlanner() {
       if (silent) setIsCheckingRealtime(false);
       else setIsLoading(false);
     } catch (error) {
-      // Saat pengecekan realtime di latar belakang gagal (mis. koneksi putus
-      // sesaat), jangan ganggu pengguna dengan alert — cukup catat di console
-      // dan coba lagi di siklus interval berikutnya.
       if (silent) {
         console.warn('Pengecekan realtime gagal:', error);
         setIsCheckingRealtime(false);
@@ -322,11 +301,14 @@ export function useKrsPlanner() {
     }
   };
 
-  // Dipanggil oleh interval realtime (lihat useEffect di bawah) — sinkron
-  // ulang tanpa mengganggu UI dengan alert kalau gagal.
+  const handleSwitchTab = (tabName: string) => {
+    setActiveTabName(tabName);
+    fetchSheetFromUrl(sheetUrl, tabName, courses, selectedCourseCodes, chosenSchedule, false);
+  };
+
   const checkForUpdatesNow = () => {
     if (!isLinkLocked || !sheetUrl) return;
-    fetchSheetFromUrl(sheetUrl, courses, selectedCourseCodes, chosenSchedule, true);
+    fetchSheetFromUrl(sheetUrl, activeTabName, courses, selectedCourseCodes, chosenSchedule, true);
   };
 
   const handleUnlockLink = () => {
@@ -334,11 +316,6 @@ export function useKrsPlanner() {
     setUpdateBadge('none');
   };
 
-  // -------------------------------------------------------------------------
-  // Fitur: pengecekan realtime (polling berkala) + notifikasi email
-  // -------------------------------------------------------------------------
-  // Kirim notifikasi ke API route saat ada perubahan terdeteksi. Endpoint
-  // pengirim email ada di app/api/notify-schedule-change/route.ts.
   const notifyScheduleChangeByEmail = async (diff: ChangeReport) => {
     if (!emailReminder.enabled || !emailReminder.email) return;
     try {
@@ -368,16 +345,10 @@ export function useKrsPlanner() {
     setEmailReminder((prev) => ({ ...prev, email }));
   };
 
-
   useEffect(() => {
-  // Menandakan bahwa komponen sudah sukses di-mount di browser klien
-  setIsMounted(true);
-}, []);
-  
-  
-  // Jalankan interval polling selama fitur diaktifkan & link sudah terkunci.
-  // Interval dibuat ulang setiap kali `intervalMs` berubah, jadi saat nanti
-  // diubah ke 5 detik untuk testing, siklus baru langsung mengikuti nilai itu.
+    setIsMounted(true);
+  }, []);
+
   const checkForUpdatesRef = useRef(checkForUpdatesNow);
   checkForUpdatesRef.current = checkForUpdatesNow;
 
@@ -390,9 +361,6 @@ export function useKrsPlanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realtimeSettings.enabled, realtimeSettings.intervalMs, isLinkLocked, sheetUrl]);
 
-  // -------------------------------------------------------------------------
-  // Turunan data mata kuliah
-  // -------------------------------------------------------------------------
   const uniqueCourseList = useMemo(() => {
     const map = new Map<string, { name: string; sks: number; lecturers: Set<string> }>();
     courses.forEach((c) => {
@@ -410,7 +378,6 @@ export function useKrsPlanner() {
     return list;
   }, [courses]);
 
-  // Daftar seluruh dosen unik dari spreadsheet, untuk kombobox "dosen favorit"
   const allLecturers = useMemo(() => {
     const set = new Set<string>();
     courses.forEach((c) => {
@@ -451,10 +418,6 @@ export function useKrsPlanner() {
     }
   };
 
-  // -------------------------------------------------------------------------
-  // Fitur: susun KRS manual — user pilih sendiri kelas (RA/RB/dst) per mata
-  // kuliah yang sudah dicentang di Step 2, lalu dicek bentroknya di akhir.
-  // -------------------------------------------------------------------------
   const classOptionsByCode = useMemo(() => {
     const map: Record<string, Course[]> = {};
     selectedCourseCodes.forEach((code) => {
@@ -469,8 +432,6 @@ export function useKrsPlanner() {
 
   const clearCustomPicks = () => setCustomPicks({});
 
-  // Susunan mata kuliah nyata (Course penuh) hasil dari pilihan manual —
-  // hanya berisi mata kuliah yang sudah dipilih kelasnya.
   const customScheduleResolved = useMemo(() => {
     const resolved: Course[] = [];
     selectedCourseCodes.forEach((code) => {
@@ -486,8 +447,6 @@ export function useKrsPlanner() {
   const customTotalSks = useMemo(() => scheduleSks(customScheduleResolved), [customScheduleResolved]);
   const customIsComplete = selectedCourseCodes.length > 0 && customScheduleResolved.length === selectedCourseCodes.length;
 
-  // Pakai susunan manual sebagai "jadwal yang digunakan" — sama seperti
-  // handleUseSchedule, cukup lewatkan hasil resolusi manualnya.
   const useCustomScheduleAsChosen = () => {
     if (customScheduleResolved.length === 0) {
       alert('Pilih kelas untuk setidaknya satu mata kuliah terlebih dahulu.');
@@ -511,9 +470,6 @@ export function useKrsPlanner() {
     setGoldlistTags(goldlistTags.filter((t) => t !== tag));
   };
 
-  // -------------------------------------------------------------------------
-  // Penyusunan jadwal (algoritmanya sendiri ada di lib/schedule-generator.ts)
-  // -------------------------------------------------------------------------
   const generateBestSchedule = () => {
     setConflictAlert('');
     if (selectedCourseCodes.length === 0) {
@@ -549,8 +505,6 @@ export function useKrsPlanner() {
     }
   };
 
-  // Tandai satu opsi jadwal sebagai "jadwal yang dipakai" — tersimpan permanen
-  // sampai diganti atau dibatalkan secara manual.
   const handleUseSchedule = (schedule: Course[]) => {
     const record: ChosenScheduleRecord = {
       items: schedule,
@@ -579,8 +533,6 @@ export function useKrsPlanner() {
 
   const chosenSignature = chosenSchedule ? scheduleSignature(chosenSchedule.items) : null;
 
-  // Tampilan jadwal terpakai memakai data TERBARU (kalau masih ada), supaya
-  // jam/dosen/ruangan yang ditampilkan selalu mengikuti spreadsheet terkini.
   const chosenScheduleResolved = useMemo(() => {
     if (!chosenSchedule) return [];
     const courseMap = new Map<string, Course>();
@@ -591,9 +543,6 @@ export function useKrsPlanner() {
     });
   }, [chosenSchedule, courses]);
 
-  // -------------------------------------------------------------------------
-  // Turunan kecil untuk tampilan
-  // -------------------------------------------------------------------------
   const step =
     sheetUrl === '' && courses.length === 0
       ? 1
@@ -605,7 +554,6 @@ export function useKrsPlanner() {
   const sksPct = Math.min(100, Math.round((totalSelectedSks / MAX_SKS) * 100));
   const isOverLimit = totalSelectedSks > MAX_SKS;
 
-  // Konteks ringkas untuk chatbot (ScheduleChatbot)
   const chatContext = useMemo(
     () => ({
       totalMataKuliahTersedia: uniqueCourseList.length,
@@ -637,10 +585,14 @@ export function useKrsPlanner() {
 
   return {
     session,
-  isMounted,
-    // sinkronisasi
+    isMounted,
+    
+    // sinkronisasi & tab
     sheetUrl,
     setSheetUrl,
+    sheetTabs,
+    activeTabName,
+    handleSwitchTab,
     courses,
     isLoading,
     isLinkLocked,

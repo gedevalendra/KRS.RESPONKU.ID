@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 
 export const MAX_SKS = 24;
-
+export const STORAGE_SHEET_TAB_KEY = 'papan-jadwal:selected-tab';
 export const STORAGE_URL_KEY = 'papan-jadwal:sheet-url';
 export const STORAGE_COURSES_KEY = 'papan-jadwal:courses-data';
 export const STORAGE_SELECTED_KEY = 'papan-jadwal:selected-codes';

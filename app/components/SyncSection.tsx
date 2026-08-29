@@ -1,6 +1,6 @@
 'use client';
 
-import { Link2, RefreshCw, Lock, Pencil, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Link2, RefreshCw, Lock, Pencil, CheckCircle2, AlertTriangle, Layers } from 'lucide-react';
 import { UpdateBadge } from '../lib/types';
 
 interface SyncSectionProps {
@@ -13,10 +13,13 @@ interface SyncSectionProps {
   droppedSelection: string[];
   onSync: () => void;
   onUnlock: () => void;
-  lastCheckedAt: string | null; // Tambahan prop untuk waktu terakhir dicek
+  lastCheckedAt: string | null;
+  sheetTabs: string[];
+  activeTabName: string;
+  onSwitchTab: (tabName: string) => void;
 }
 
-// Step 1 — Sinkronisasi spreadsheet, terkunci setelah berhasil sinkron
+// Step 1 — Sinkronisasi spreadsheet & pemilihan tab, terkunci setelah berhasil sinkron
 export default function SyncSection({
   sheetUrl,
   setSheetUrl,
@@ -28,6 +31,9 @@ export default function SyncSection({
   onSync,
   onUnlock,
   lastCheckedAt,
+  sheetTabs,
+  activeTabName,
+  onSwitchTab,
 }: SyncSectionProps) {
   return (
     <section className="bg-white border border-black/10 rounded-xl p-5 sm:p-6">
@@ -40,27 +46,50 @@ export default function SyncSection({
       </p>
 
       {isLinkLocked ? (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 border border-black/10 bg-black/[0.03] rounded-md px-3 py-2.5 text-sm text-black/60 min-w-0">
-            <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="truncate">{sheetUrl}</span>
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 border border-black/10 bg-black/[0.03] rounded-md px-3 py-2.5 text-sm text-black/60 min-w-0">
+              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">{sheetUrl}</span>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={onSync}
+                disabled={isLoading}
+                className="border border-black/15 hover:bg-black/5 px-3.5 py-2.5 rounded-md text-sm font-medium flex items-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Cek Pembaruan
+              </button>
+              <button
+                onClick={onUnlock}
+                className="border border-black/15 hover:bg-black/5 px-3 py-2.5 rounded-md text-sm flex items-center gap-2 cursor-pointer"
+              >
+                <Pencil className="w-4 h-4" /> Ubah
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
-            <button
-              onClick={onSync}
-              disabled={isLoading}
-              className="border border-black/15 hover:bg-black/5 px-3.5 py-2.5 rounded-md text-sm font-medium flex items-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Cek Pembaruan
-            </button>
-            <button
-              onClick={onUnlock}
-              className="border border-black/15 hover:bg-black/5 px-3 py-2.5 rounded-md text-sm flex items-center gap-2 cursor-pointer"
-            >
-              <Pencil className="w-4 h-4" /> Ubah
-            </button>
-          </div>
+
+          {/* Dropdown Pilihan Tab / Jurusan Spreadsheet */}
+          {sheetTabs.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap bg-black/[0.02] border border-black/10 rounded-lg p-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-black/50 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5" /> Pilih Tab Jurusan:
+              </span>
+              <select
+                value={activeTabName}
+                onChange={(e) => onSwitchTab(e.target.value)}
+                disabled={isLoading}
+                className="border border-black/15 rounded-md px-3 py-1.5 text-sm bg-white outline-none focus:ring-2 focus:ring-black cursor-pointer disabled:opacity-50"
+              >
+                {sheetTabs.map((tab) => (
+                  <option key={tab} value={tab}>
+                    Tab: {tab}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col sm:flex-row gap-2">

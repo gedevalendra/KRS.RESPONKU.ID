@@ -118,12 +118,12 @@ export function saveJSON<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-// Ubah link Google Sheets biasa menjadi link ekspor CSV.
+// Ubah link Google Sheets biasa menjadi link ekspor format XLSX agar multi-tab terbaca.
 export function convertToCsvUrl(url: string): string {
   if (url.includes('docs.google.com/spreadsheets')) {
     const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
     if (matches && matches[1]) {
-      return `https://docs.google.com/spreadsheets/d/${matches[1]}/export?format=csv`;
+      return `https://docs.google.com/spreadsheets/d/${matches[1]}/export?format=xlsx`;
     }
   }
   return url;

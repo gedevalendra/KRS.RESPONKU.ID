@@ -85,7 +85,7 @@ if (!krs.isMounted) {
         )}
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-8 space-y-6">
-         <SyncSection
+          <SyncSection
             sheetUrl={krs.sheetUrl}
             setSheetUrl={krs.setSheetUrl}
             isLoading={krs.isLoading}
@@ -95,9 +95,12 @@ if (!krs.isMounted) {
             droppedSelection={krs.droppedSelection}
             onSync={() => krs.fetchSheetFromUrl()}
             onUnlock={krs.handleUnlockLink}
-            lastCheckedAt={krs.lastCheckedAt} // <-- Tambahkan baris ini
+            lastCheckedAt={krs.lastCheckedAt}
+            sheetTabs={krs.sheetTabs}
+            activeTabName={krs.activeTabName}
+            onSwitchTab={krs.handleSwitchTab}
           />
-          
+
           {krs.changeReport && krs.changeReport.hasChanges && (
             <ChangeReportPanel changeReport={krs.changeReport} onClose={() => krs.setChangeReport(null)} />
           )}
