@@ -85,7 +85,7 @@ if (!krs.isMounted) {
         )}
 
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-8 space-y-6">
-          <SyncSection
+         <SyncSection
             sheetUrl={krs.sheetUrl}
             setSheetUrl={krs.setSheetUrl}
             isLoading={krs.isLoading}
@@ -97,19 +97,7 @@ if (!krs.isMounted) {
             onUnlock={krs.handleUnlockLink}
             lastCheckedAt={krs.lastCheckedAt} // <-- Tambahkan baris ini
           />
-
-          <RealtimeSyncPanel
-            isLinkLocked={krs.isLinkLocked}
-            realtimeSettings={krs.realtimeSettings}
-            onToggleRealtime={krs.setRealtimeEnabled}
-            onChangeIntervalMs={krs.setRealtimeIntervalMs}
-            emailReminder={krs.emailReminder}
-            onToggleEmailReminder={krs.setEmailReminderEnabled}
-            onChangeEmail={krs.setReminderEmail}
-            lastCheckedAt={krs.lastCheckedAt}
-            isCheckingRealtime={krs.isCheckingRealtime}
-          />
-
+          
           {krs.changeReport && krs.changeReport.hasChanges && (
             <ChangeReportPanel changeReport={krs.changeReport} onClose={() => krs.setChangeReport(null)} />
           )}
@@ -174,6 +162,18 @@ if (!krs.isMounted) {
               <p className="text-sm">Belum ada data. Tempel link spreadsheet di atas untuk memulai.</p>
             </div>
           )}
+
+          <RealtimeSyncPanel
+            isLinkLocked={krs.isLinkLocked}
+            realtimeSettings={krs.realtimeSettings}
+            onToggleRealtime={krs.setRealtimeEnabled}
+            onChangeIntervalMs={krs.setRealtimeIntervalMs}
+            emailReminder={krs.emailReminder}
+            onToggleEmailReminder={krs.setEmailReminderEnabled}
+            onChangeEmail={krs.setReminderEmail}
+            lastCheckedAt={krs.lastCheckedAt}
+            isCheckingRealtime={krs.isCheckingRealtime}
+          />
         </main>
       </div>
 
