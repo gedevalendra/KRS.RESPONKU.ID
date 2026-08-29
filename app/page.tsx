@@ -1,749 +1,55 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import * as XLSX from 'xlsx';
-import {
-  Calendar,
-  CheckCircle2,
-  AlertTriangle,
-  RefreshCw,
-  Star,
-  BookOpen,
-  LogIn,
-  LogOut,
-  CheckSquare,
-  Square,
-  Layers,
-  Menu,
-  X,
-  Link2,
-  ListChecks,
-  Wand2,
-  Lock,
-  Pencil,
-  Copy,
-  Check,
-  Info,
-  History,
-  Plus,
-  Minus,
-  ShieldCheck,
-  ShieldAlert,
-  BookmarkCheck,
-  Bookmark,
-  Trash2,
-} from 'lucide-react';
+// ---------------------------------------------------------------------------
+// Halaman ini murni "menyusun tampilan": semua state & logika bisnis ada di
+// hooks/useKrsPlanner.ts, semua bagian UI ada di folder components/.
+//
+// Kalau nanti mau MENAMBAH fitur baru → biasanya cukup:
+//   1. Tambah state/logika di hooks/useKrsPlanner.ts (atau file lib/ baru)
+//   2. Buat komponen baru di components/
+//   3. Panggil komponennya di sini
+//
+// Kalau mau MENGHAPUS fitur → tinggal hapus baris pemanggilan komponennya
+// di sini, lalu hapus komponen & state terkait. Bagian lain tidak perlu
+// disentuh sama sekali.
+// ---------------------------------------------------------------------------
+
+import { useState } from 'react';
+import { BookOpen, X } from 'lucide-react';
 import ScheduleChatbot from './ScheduleChatbot';
+import { useKrsPlanner } from './hooks/useKrsPlanner';
 
-// ---------------------------------------------------------------------------
-// Tipe data
-// ---------------------------------------------------------------------------
-interface Course {
-  'Hari'?: string;
-  'Jam Mulai (Ex : 07:00)'?: string;
-  'Jam Berakhir (Ex: 10:00)'?: string;
-  'Kode Mata Kuliah'?: string;
-  'Nama Mata Kuliah'?: string;
-  'SKS'?: number | string;
-  'Kelas'?: string;
-  'Semester'?: string;
-  'Ruangan \n(Diisi Fakultas)'?: string;
-  'Dosen'?: string;
-  [key: string]: any;
-}
-
-interface UniqueCourseOption {
-  code: string;
-  name: string;
-  sks: number;
-  lecturers: string[];
-}
-
-interface ChangeReportItem {
-  key: string;
-  code: string;
-  name: string;
-  kelas: string;
-  before?: Course;
-  after?: Course;
-  detail?: string[];
-}
-
-interface ChangeReport {
-  hasChanges: boolean;
-  added: ChangeReportItem[];
-  removed: ChangeReportItem[];
-  changed: ChangeReportItem[];
-}
-
-interface ChosenScheduleRecord {
-  items: Course[];
-  totalSks: number;
-  savedAt: string;
-}
-
-interface ChosenValidation {
-  ok: boolean;
-  messages: string[];
-  totalSksBefore: number;
-  totalSksAfter: number;
-  missingCount: number;
-  conflictCount: number;
-}
-
-const MAX_SKS = 24;
-const STORAGE_URL_KEY = 'papan-jadwal:sheet-url';
-const STORAGE_COURSES_KEY = 'papan-jadwal:courses-data';
-const STORAGE_SELECTED_KEY = 'papan-jadwal:selected-codes';
-const STORAGE_GOLDLIST_KEY = 'papan-jadwal:goldlist-tags';
-const STORAGE_CHOSEN_KEY = 'papan-jadwal:chosen-schedule';
-const DAY_ORDER = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
-
-// ---------------------------------------------------------------------------
-// Helper murni — di luar komponen supaya bisa dipakai algoritma & ekspor teks
-// ---------------------------------------------------------------------------
-function timeToMinutes(timeStr?: string): number {
-  if (!timeStr) return 0;
-  const parts = timeStr.toString().trim().split(':');
-  if (parts.length < 2) return 0;
-  const hours = parseInt(parts[0], 10) || 0;
-  const minutes = parseInt(parts[1], 10) || 0;
-  return hours * 60 + minutes;
-}
-
-function isOverlap(c1: Course, c2: Course): boolean {
-  if (c1['Hari']?.trim().toLowerCase() !== c2['Hari']?.trim().toLowerCase()) return false;
-  const start1 = timeToMinutes(c1['Jam Mulai (Ex : 07:00)']);
-  const end1 = timeToMinutes(c1['Jam Berakhir (Ex: 10:00)']);
-  const start2 = timeToMinutes(c2['Jam Mulai (Ex : 07:00)']);
-  const end2 = timeToMinutes(c2['Jam Berakhir (Ex: 10:00)']);
-  return start1 < end2 && start2 < end1;
-}
-
-function scheduleSks(schedule: Course[]): number {
-  return schedule.reduce((sum, item) => sum + (parseInt(String(item['SKS'] || '3'), 10) || 3), 0);
-}
-
-function buildScheduleText(schedule: Course[]): string {
-  const byDay: Record<string, Course[]> = {};
-  schedule.forEach((c) => {
-    const day = (c['Hari'] || 'Lainnya').trim();
-    if (!byDay[day]) byDay[day] = [];
-    byDay[day].push(c);
-  });
-
-  const sortedDays = Object.keys(byDay).sort((a, b) => {
-    const ia = DAY_ORDER.indexOf(a.toLowerCase());
-    const ib = DAY_ORDER.indexOf(b.toLowerCase());
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-  });
-
-  let text = 'JADWAL KULIAH\n—————————————————';
-  sortedDays.forEach((day) => {
-    const items = [...byDay[day]].sort(
-      (a, b) => timeToMinutes(a['Jam Mulai (Ex : 07:00)']) - timeToMinutes(b['Jam Mulai (Ex : 07:00)']),
-    );
-    text += `\n\n${day.toUpperCase()}`;
-    items.forEach((item) => {
-      text += `\n${item['Jam Mulai (Ex : 07:00)']}–${item['Jam Berakhir (Ex: 10:00)']}  ${item['Nama Mata Kuliah']} (${item['Kelas'] || '-'})`;
-      text += `\n   ${item['Dosen'] || 'Dosen belum ditentukan'}`;
-    });
-  });
-  text += `\n\n—————————————————\n${schedule.length} mata kuliah · ${scheduleSks(schedule)} SKS`;
-  return text;
-}
-
-// Kunci unik satu baris jadwal — dipakai untuk deteksi perubahan & pencocokan
-// jadwal yang sudah dipilih terhadap data terbaru.
-function courseKey(c: Course): string {
-  const code = (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase();
-  const kelas = (c['Kelas'] || '').toString().trim().toUpperCase();
-  return `${code}::${kelas}`;
-}
-
-function scheduleSignature(schedule: Course[]): string {
-  return schedule
-    .map((c) => courseKey(c))
-    .sort()
-    .join('|');
-}
-
-// Bandingkan data lama vs baru: apa yang ditambahkan, dihapus, dan diubah.
-function diffCourses(oldList: Course[], newList: Course[]): ChangeReport {
-  const oldMap = new Map<string, Course>();
-  oldList.forEach((c) => oldMap.set(courseKey(c), c));
-  const newMap = new Map<string, Course>();
-  newList.forEach((c) => newMap.set(courseKey(c), c));
-
-  const added: ChangeReportItem[] = [];
-  const removed: ChangeReportItem[] = [];
-  const changed: ChangeReportItem[] = [];
-
-  newMap.forEach((c, key) => {
-    if (!oldMap.has(key)) {
-      added.push({ key, code: c['Kode Mata Kuliah'] || '', name: c['Nama Mata Kuliah'] || '', kelas: c['Kelas'] || '', after: c });
-    }
-  });
-
-  oldMap.forEach((c, key) => {
-    if (!newMap.has(key)) {
-      removed.push({ key, code: c['Kode Mata Kuliah'] || '', name: c['Nama Mata Kuliah'] || '', kelas: c['Kelas'] || '', before: c });
-    }
-  });
-
-  oldMap.forEach((oldC, key) => {
-    const newC = newMap.get(key);
-    if (!newC) return;
-    const detail: string[] = [];
-
-    if ((oldC['Hari'] || '').trim().toLowerCase() !== (newC['Hari'] || '').trim().toLowerCase()) {
-      detail.push(`Hari berubah dari ${oldC['Hari'] || '-'} menjadi ${newC['Hari'] || '-'}`);
-    }
-    const oldStart = oldC['Jam Mulai (Ex : 07:00)'] || '-';
-    const newStart = newC['Jam Mulai (Ex : 07:00)'] || '-';
-    const oldEnd = oldC['Jam Berakhir (Ex: 10:00)'] || '-';
-    const newEnd = newC['Jam Berakhir (Ex: 10:00)'] || '-';
-    if (oldStart !== newStart || oldEnd !== newEnd) {
-      detail.push(`Jam berubah dari ${oldStart}–${oldEnd} menjadi ${newStart}–${newEnd}`);
-    }
-    if ((oldC['Dosen'] || '').trim() !== (newC['Dosen'] || '').trim()) {
-      detail.push(`Dosen berubah dari ${oldC['Dosen'] || 'belum ditentukan'} menjadi ${newC['Dosen'] || 'belum ditentukan'}`);
-    }
-    const oldRoom = oldC['Ruangan \n(Diisi Fakultas)'] || '-';
-    const newRoom = newC['Ruangan \n(Diisi Fakultas)'] || '-';
-    if (oldRoom !== newRoom) {
-      detail.push(`Ruangan berubah dari ${oldRoom} menjadi ${newRoom}`);
-    }
-    const oldSks = parseInt(String(oldC['SKS'] || '3'), 10) || 3;
-    const newSks = parseInt(String(newC['SKS'] || '3'), 10) || 3;
-    if (oldSks !== newSks) {
-      detail.push(`SKS berubah dari ${oldSks} menjadi ${newSks}`);
-    }
-
-    if (detail.length > 0) {
-      changed.push({
-        key,
-        code: newC['Kode Mata Kuliah'] || '',
-        name: newC['Nama Mata Kuliah'] || '',
-        kelas: newC['Kelas'] || '',
-        before: oldC,
-        after: newC,
-        detail,
-      });
-    }
-  });
-
-  return { hasChanges: added.length > 0 || removed.length > 0 || changed.length > 0, added, removed, changed };
-}
-
-// Cek apakah jadwal yang sudah "dipilih untuk digunakan" masih valid setelah
-// ada data baru: apakah masih ada, apakah jamnya berubah, apakah jadi bentrok,
-// dan apakah total SKS-nya berubah.
-function validateChosenSchedule(chosen: Course[], newCourses: Course[], prevTotalSks: number): ChosenValidation {
-  const newMap = new Map<string, Course>();
-  newCourses.forEach((c) => newMap.set(courseKey(c), c));
-
-  const messages: string[] = [];
-  const resolved: Course[] = [];
-  let missingCount = 0;
-
-  chosen.forEach((item) => {
-    const match = newMap.get(courseKey(item));
-    if (!match) {
-      missingCount++;
-      messages.push(`"${item['Nama Mata Kuliah']}" (Kelas ${item['Kelas'] || '-'}) sudah tidak tersedia di jadwal terbaru.`);
-      return;
-    }
-    resolved.push(match);
-
-    const oldStart = item['Jam Mulai (Ex : 07:00)'];
-    const newStart = match['Jam Mulai (Ex : 07:00)'];
-    const oldEnd = item['Jam Berakhir (Ex: 10:00)'];
-    const newEnd = match['Jam Berakhir (Ex: 10:00)'];
-    const oldDay = (item['Hari'] || '').trim().toLowerCase();
-    const newDay = (match['Hari'] || '').trim().toLowerCase();
-    if (oldStart !== newStart || oldEnd !== newEnd || oldDay !== newDay) {
-      messages.push(`Jadwal "${item['Nama Mata Kuliah']}" berubah menjadi ${match['Hari']}, ${newStart}–${newEnd}.`);
-    }
-  });
-
-  let conflictCount = 0;
-  for (let i = 0; i < resolved.length; i++) {
-    for (let j = i + 1; j < resolved.length; j++) {
-      if (isOverlap(resolved[i], resolved[j])) {
-        conflictCount++;
-        messages.push(
-          `Bentrok baru: "${resolved[i]['Nama Mata Kuliah']}" dengan "${resolved[j]['Nama Mata Kuliah']}" pada hari ${resolved[i]['Hari']}.`,
-        );
-      }
-    }
-  }
-
-  const totalSksAfter = scheduleSks(resolved) + missingCount * 0; // SKS mk yang hilang tidak dihitung
-  if (totalSksAfter !== prevTotalSks) {
-    messages.push(`Total SKS jadwal ini berubah dari ${prevTotalSks} menjadi ${totalSksAfter}.`);
-  }
-
-  const ok = missingCount === 0 && conflictCount === 0;
-  if (ok && messages.length === 0) {
-    messages.push('Jadwal yang sedang Anda gunakan masih aman — tidak ada perubahan maupun bentrok.');
-  }
-
-  return { ok, messages, totalSksBefore: prevTotalSks, totalSksAfter, missingCount, conflictCount };
-}
-
-function loadJSON<T>(key: string): T | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
+import Navbar from './components/Navbar';
+import SidebarContent from './components/SidebarContent';
+import SyncSection from './components/SyncSection';
+import ChangeReportPanel from './components/ChangeReportPanel';
+import CourseSelectionSection from './components/CourseSelectionSection';
+import ConflictAlert from './components/ConflictAlert';
+import ScheduleResultSection from './components/ScheduleResultSection';
+import ChosenSchedulePanel from './components/ChosenSchedulePanel';
+import CustomScheduleBuilder from './components/CustomScheduleBuilder';
+import RealtimeSyncPanel from './components/RealtimeSyncPanel';
+import Footer from './components/Footer';
 
 export default function AdvancedScheduleApp() {
-  const { data: session } = useSession();
-  const [sheetUrl, setSheetUrl] = useState<string>('');
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-
-  // Link spreadsheet: terkunci setelah sinkron pertama, badge memberi tahu perubahan
-  const [isLinkLocked, setIsLinkLocked] = useState<boolean>(false);
-  const [updateBadge, setUpdateBadge] = useState<'none' | 'first' | 'same' | 'changed'>('none');
-
-  const [selectedCourseCodes, setSelectedCourseCodes] = useState<string[]>([]);
-
-  // Dosen favorit: tag, bisa dipilih dari daftar atau diketik manual
-  const [goldlistTags, setGoldlistTags] = useState<string[]>([]);
-  const [goldlistInput, setGoldlistInput] = useState<string>('');
-
-  const [scheduleOptions, setScheduleOptions] = useState<Course[][]>([]);
-  const [activeOption, setActiveOption] = useState<number>(0);
-  const [conflictAlert, setConflictAlert] = useState<string>('');
-  const [copyStatus, setCopyStatus] = useState<boolean>(false);
-
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-
-  // Perubahan data spreadsheet sejak sinkron terakhir (mk ditambah/dihapus/diubah)
-  const [changeReport, setChangeReport] = useState<ChangeReport | null>(null);
-  // Mata kuliah yang sebelumnya dipilih tapi sekarang hilang dari spreadsheet
-  const [droppedSelection, setDroppedSelection] = useState<string[]>([]);
-
-  // Jadwal yang sudah "dikunci" untuk dipakai, plus status validasinya
-  const [chosenSchedule, setChosenSchedule] = useState<ChosenScheduleRecord | null>(null);
-  const [chosenValidation, setChosenValidation] = useState<ChosenValidation | null>(null);
-
-  // -------------------------------------------------------------------------
-  // Muat semua state tersimpan saat pertama kali dibuka, lalu sinkron ulang
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
-    const savedCourses = loadJSON<Course[]>(STORAGE_COURSES_KEY) || [];
-    const savedSelected = loadJSON<string[]>(STORAGE_SELECTED_KEY) || [];
-    const savedGoldlist = loadJSON<string[]>(STORAGE_GOLDLIST_KEY) || [];
-    const savedChosen = loadJSON<ChosenScheduleRecord>(STORAGE_CHOSEN_KEY);
-
-    if (savedCourses.length > 0) setCourses(savedCourses);
-    if (savedSelected.length > 0) setSelectedCourseCodes(savedSelected);
-    if (savedGoldlist.length > 0) setGoldlistTags(savedGoldlist);
-    if (savedChosen) setChosenSchedule(savedChosen);
-
-    if (savedUrl) {
-      setSheetUrl(savedUrl);
-      setIsLinkLocked(true);
-      // Kirim data lama secara eksplisit supaya proses diff akurat sejak awal
-      fetchSheetFromUrl(savedUrl, savedCourses, savedSelected, savedChosen);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Simpan pilihan mata kuliah & dosen favorit setiap kali berubah, supaya
-  // tidak hilang walau halaman di-refresh (tanpa perlu sinkron ulang).
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(STORAGE_SELECTED_KEY, JSON.stringify(selectedCourseCodes));
-  }, [selectedCourseCodes]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(STORAGE_GOLDLIST_KEY, JSON.stringify(goldlistTags));
-  }, [goldlistTags]);
-
-  const convertToCsvUrl = (url: string) => {
-    if (url.includes('docs.google.com/spreadsheets')) {
-      const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (matches && matches[1]) {
-        return `https://docs.google.com/spreadsheets/d/${matches[1]}/export?format=csv`;
-      }
-    }
-    return url;
+  const krs = useKrsPlanner();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+if (!krs.isMounted) {
+    return null; // Bisa diganti dengan <div>Loading...</div> jika mau
+  }
+  const sidebarProps = {
+    step: krs.step,
+    totalSelectedSks: krs.totalSelectedSks,
+    isOverLimit: krs.isOverLimit,
+    sksPct: krs.sksPct,
+    selectedCount: krs.selectedCourseCodes.length,
+    goldlistTags: krs.goldlistTags,
+    goldlistInput: krs.goldlistInput,
+    setGoldlistInput: krs.setGoldlistInput,
+    lecturerSuggestions: krs.lecturerSuggestions,
+    addLecturerTag: krs.addLecturerTag,
+    removeLecturerTag: krs.removeLecturerTag,
   };
-
-  const fetchSheetFromUrl = async (
-    urlOverride?: string,
-    prevCoursesOverride?: Course[],
-    prevSelectedOverride?: string[],
-    prevChosenOverride?: ChosenScheduleRecord | null,
-  ) => {
-    const urlToUse = urlOverride ?? sheetUrl;
-    if (!urlToUse) return;
-    setIsLoading(true);
-    try {
-      const targetUrl = convertToCsvUrl(urlToUse);
-      let response;
-
-      if (session && (session as any).accessToken) {
-        response = await fetch(targetUrl, {
-          headers: { Authorization: `Bearer ${(session as any).accessToken}` },
-        });
-      } else {
-        response = await fetch(targetUrl);
-      }
-
-      if (!response.ok) throw new Error('Gagal mengunduh spreadsheet.');
-
-      const arrayBuffer = await response.arrayBuffer();
-      const wb = XLSX.read(arrayBuffer, { type: 'array' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const rawData = XLSX.utils.sheet_to_json<any>(ws, { range: 12 });
-      const cleanedData: Course[] = rawData.filter((item) => item['Nama Mata Kuliah'] && item['Hari']);
-
-      // Data & pilihan sebelumnya, dipakai sebagai basis perbandingan
-      const prevCourses = prevCoursesOverride ?? courses;
-      const prevSelected = prevSelectedOverride ?? selectedCourseCodes;
-      const prevChosen = prevChosenOverride !== undefined ? prevChosenOverride : chosenSchedule;
-
-      const isFirstSync = prevCourses.length === 0;
-      const diff = diffCourses(prevCourses, cleanedData);
-
-      if (isFirstSync) {
-        setUpdateBadge('first');
-        setChangeReport(null);
-      } else if (!diff.hasChanges) {
-        setUpdateBadge('same');
-        setChangeReport(null);
-      } else {
-        setUpdateBadge('changed');
-        setChangeReport(diff);
-      }
-
-      // Mata kuliah yang sudah dipilih tapi sekarang tidak ada lagi di spreadsheet
-      const newCodesSet = new Set(cleanedData.map((c) => (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase()));
-      const stillValidSelected = prevSelected.filter((code) => newCodesSet.has(code.toUpperCase()));
-      const dropped = prevSelected.filter((code) => !newCodesSet.has(code.toUpperCase()));
-      setSelectedCourseCodes(stillValidSelected);
-      setDroppedSelection(dropped);
-
-      // Validasi ulang jadwal yang sedang "dipakai" terhadap data terbaru
-      if (prevChosen) {
-        const validation = validateChosenSchedule(prevChosen.items, cleanedData, prevChosen.totalSks);
-        setChosenValidation(validation);
-      } else {
-        setChosenValidation(null);
-      }
-
-      setCourses(cleanedData);
-      setIsLinkLocked(true);
-
-      localStorage.setItem(STORAGE_URL_KEY, urlToUse);
-      localStorage.setItem(STORAGE_COURSES_KEY, JSON.stringify(cleanedData));
-      localStorage.setItem(STORAGE_SELECTED_KEY, JSON.stringify(stillValidSelected));
-
-      setIsLoading(false);
-    } catch (error) {
-      alert('Gagal mengambil data dari link. Pastikan link Google Sheets publik atau Anda sudah login dengan akun berizin.');
-      setIsLoading(false);
-    }
-  };
-
-  const handleUnlockLink = () => {
-    setIsLinkLocked(false);
-    setUpdateBadge('none');
-  };
-
-  // -------------------------------------------------------------------------
-  // Turunan data
-  // -------------------------------------------------------------------------
-  const uniqueCourseList: UniqueCourseOption[] = useMemo(() => {
-    const map = new Map<string, { name: string; sks: number; lecturers: Set<string> }>();
-    courses.forEach((c) => {
-      const code = c['Kode Mata Kuliah']?.trim();
-      const name = c['Nama Mata Kuliah']?.trim();
-      const sksVal = parseInt(String(c['SKS'] || '3'), 10) || 3;
-      const lecturer = c['Dosen']?.trim();
-      if (code && name) {
-        if (!map.has(code)) map.set(code, { name, sks: sksVal, lecturers: new Set() });
-        if (lecturer) map.get(code)?.lecturers.add(lecturer);
-      }
-    });
-    const list: UniqueCourseOption[] = [];
-    map.forEach((val, code) => list.push({ code, name: val.name, sks: val.sks, lecturers: Array.from(val.lecturers) }));
-    return list;
-  }, [courses]);
-
-  // Daftar seluruh dosen unik dari spreadsheet, untuk kombobox "dosen favorit"
-  const allLecturers = useMemo(() => {
-    const set = new Set<string>();
-    courses.forEach((c) => {
-      const dosen = c['Dosen']?.trim();
-      if (dosen) set.add(dosen);
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [courses]);
-
-  const lecturerSuggestions = useMemo(() => {
-    const query = goldlistInput.trim().toLowerCase();
-    return allLecturers
-      .filter((l) => !goldlistTags.some((t) => t.toLowerCase() === l.toLowerCase()))
-      .filter((l) => (query ? l.toLowerCase().includes(query) : true))
-      .slice(0, 6);
-  }, [allLecturers, goldlistInput, goldlistTags]);
-
-  const totalSelectedSks = useMemo(() => {
-    let total = 0;
-    selectedCourseCodes.forEach((code) => {
-      const found = uniqueCourseList.find((c) => c.code === code);
-      if (found) total += found.sks;
-    });
-    return total;
-  }, [selectedCourseCodes, uniqueCourseList]);
-
-  const toggleCourseSelection = (code: string) => {
-    const courseObj = uniqueCourseList.find((c) => c.code === code);
-    if (!courseObj) return;
-    if (selectedCourseCodes.includes(code)) {
-      setSelectedCourseCodes(selectedCourseCodes.filter((c) => c !== code));
-    } else {
-      if (totalSelectedSks + courseObj.sks > MAX_SKS) {
-        alert(`Batas maksimal SKS adalah ${MAX_SKS}! Menambahkan mata kuliah ini akan membuat total SKS menjadi ${totalSelectedSks + courseObj.sks}.`);
-        return;
-      }
-      setSelectedCourseCodes([...selectedCourseCodes, code]);
-    }
-  };
-
-  const addLecturerTag = (raw: string) => {
-    const tag = raw.trim();
-    if (!tag) return;
-    if (goldlistTags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
-      setGoldlistInput('');
-      return;
-    }
-    setGoldlistTags([...goldlistTags, tag]);
-    setGoldlistInput('');
-  };
-
-  const removeLecturerTag = (tag: string) => {
-    setGoldlistTags(goldlistTags.filter((t) => t !== tag));
-  };
-
-  // -------------------------------------------------------------------------
-  // Algoritma penyusunan jadwal
-  // -------------------------------------------------------------------------
-  const buildGroups = (rotateOffset = 0): Record<string, Course[]> => {
-    const groups: Record<string, Course[]> = {};
-    selectedCourseCodes.forEach((code) => {
-      let options = courses.filter((c) => c['Kode Mata Kuliah']?.trim().toUpperCase() === code.toUpperCase());
-      if (rotateOffset > 0 && options.length > 0) {
-        const r = rotateOffset % options.length;
-        options = [...options.slice(r), ...options.slice(0, r)];
-      }
-      groups[code] = options;
-    });
-    return groups;
-  };
-
-  const runBacktrack = (groups: Record<string, Course[]>): Course[] | null => {
-    const codes = Object.keys(groups);
-    let result: Course[] = [];
-    let found = false;
-
-    const backtrack = (index: number, current: Course[]) => {
-      if (found) return;
-      if (index === codes.length) {
-        result = [...current];
-        found = true;
-        return;
-      }
-      for (const cls of groups[codes[index]]) {
-        if (!current.some((selected) => isOverlap(selected, cls))) {
-          current.push(cls);
-          backtrack(index + 1, current);
-          current.pop();
-        }
-      }
-    };
-
-    backtrack(0, []);
-    return found ? result : null;
-  };
-
-  const generateBestSchedule = () => {
-    setConflictAlert('');
-    if (selectedCourseCodes.length === 0) {
-      alert('Pilih setidaknya satu mata kuliah terlebih dahulu!');
-      return;
-    }
-
-    if (goldlistTags.length > 0) {
-      // Ada preferensi dosen -> satu jadwal terbaik yang memprioritaskan dosen favorit
-      const groups = buildGroups();
-      Object.keys(groups).forEach((code) => {
-        groups[code].sort((a, b) => {
-          const aMatch = goldlistTags.some((d) => (a['Dosen'] || '').toLowerCase().includes(d.toLowerCase()));
-          const bMatch = goldlistTags.some((d) => (b['Dosen'] || '').toLowerCase().includes(d.toLowerCase()));
-          if (aMatch && !bMatch) return -1;
-          if (!aMatch && bMatch) return 1;
-          return 0;
-        });
-      });
-
-      const best = runBacktrack(groups);
-      if (best) {
-        setScheduleOptions([best]);
-        setActiveOption(0);
-        setConflictAlert('Sukses: Jadwal optimal berhasil disusun tanpa ada waktu yang bertabrakan.');
-      } else {
-        const fallback = Object.keys(groups)
-          .filter((c) => groups[c].length > 0)
-          .map((c) => groups[c][0]);
-        setScheduleOptions([fallback]);
-        setActiveOption(0);
-        setConflictAlert('Peringatan: Tidak ditemukan kombinasi bersih tanpa bentrok total. Menampilkan opsi terbaik yang tersedia.');
-      }
-      return;
-    }
-
-    // Tanpa preferensi dosen -> tawarkan beberapa opsi jadwal berbeda
-    const seen = new Set<string>();
-    const options: Course[][] = [];
-    for (let attempt = 0; attempt < 8 && options.length < 3; attempt++) {
-      const groups = buildGroups(attempt);
-      const combo = runBacktrack(groups);
-      if (combo) {
-        const signature = scheduleSignature(combo);
-        if (!seen.has(signature)) {
-          seen.add(signature);
-          options.push(combo);
-        }
-      }
-    }
-
-    if (options.length > 0) {
-      setScheduleOptions(options);
-      setActiveOption(0);
-      setConflictAlert(
-        `Sukses: ditemukan ${options.length} opsi jadwal tanpa bentrok. Isi "Dosen favorit" di sidebar bila ingin satu rekomendasi terbaik.`,
-      );
-    } else {
-      const groups = buildGroups();
-      const fallback = Object.keys(groups)
-        .filter((c) => groups[c].length > 0)
-        .map((c) => groups[c][0]);
-      setScheduleOptions([fallback]);
-      setActiveOption(0);
-      setConflictAlert('Peringatan: Tidak ditemukan kombinasi bersih tanpa bentrok total. Menampilkan opsi terbaik yang tersedia.');
-    }
-  };
-
-  const currentSchedule = scheduleOptions[activeOption] || [];
-
-  const handleCopyText = async (schedule: Course[]) => {
-    if (schedule.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(buildScheduleText(schedule));
-      setCopyStatus(true);
-      setTimeout(() => setCopyStatus(false), 2000);
-    } catch {
-      alert('Gagal menyalin teks. Salin manual dari hasil di bawah.');
-    }
-  };
-
-  // Tandai satu opsi jadwal sebagai "jadwal yang dipakai" — tersimpan permanen
-  // sampai diganti atau dibatalkan secara manual.
-  const handleUseSchedule = (schedule: Course[]) => {
-    const record: ChosenScheduleRecord = {
-      items: schedule,
-      totalSks: scheduleSks(schedule),
-      savedAt: new Date().toISOString(),
-    };
-    setChosenSchedule(record);
-    setChosenValidation({
-      ok: true,
-      messages: ['Jadwal ini baru saja dipilih sebagai jadwal yang digunakan.'],
-      totalSksBefore: record.totalSks,
-      totalSksAfter: record.totalSks,
-      missingCount: 0,
-      conflictCount: 0,
-    });
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_CHOSEN_KEY, JSON.stringify(record));
-    }
-  };
-
-  const handleClearChosenSchedule = () => {
-    setChosenSchedule(null);
-    setChosenValidation(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_CHOSEN_KEY);
-    }
-  };
-
-  const chosenSignature = chosenSchedule ? scheduleSignature(chosenSchedule.items) : null;
-
-  // Tampilan jadwal terpakai memakai data TERBARU (kalau masih ada), supaya
-  // jam/dosen/ruangan yang ditampilkan selalu mengikuti spreadsheet terkini.
-  const chosenScheduleResolved = useMemo(() => {
-    if (!chosenSchedule) return [];
-    const courseMap = new Map<string, Course>();
-    courses.forEach((c) => courseMap.set(courseKey(c), c));
-    return chosenSchedule.items.map((item) => {
-      const match = courseMap.get(courseKey(item));
-      return match ? { ...match, __missing: false } : { ...item, __missing: true };
-    });
-  }, [chosenSchedule, courses]);
-
-  // -------------------------------------------------------------------------
-  // Turunan kecil untuk tampilan
-  // -------------------------------------------------------------------------
-  const step = sheetUrl === '' && courses.length === 0 ? 1 : uniqueCourseList.length > 0 && scheduleOptions.length === 0 ? 2 : scheduleOptions.length > 0 ? 3 : 1;
-  const sksPct = Math.min(100, Math.round((totalSelectedSks / MAX_SKS) * 100));
-  const isOverLimit = totalSelectedSks > MAX_SKS;
-
-  const chatContext = useMemo(
-    () => ({
-      totalMataKuliahTersedia: uniqueCourseList.length,
-      mataKuliahDipilih: uniqueCourseList.filter((c) => selectedCourseCodes.includes(c.code)),
-      totalSksDipilih: totalSelectedSks,
-      dosenFavorit: goldlistTags,
-      opsiJadwal: scheduleOptions.map((opt, i) => ({
-        opsi: String.fromCharCode(65 + i),
-        totalSks: scheduleSks(opt),
-        mataKuliah: opt.map((c) => ({
-          kode: c['Kode Mata Kuliah'],
-          nama: c['Nama Mata Kuliah'],
-          hari: c['Hari'],
-          jam: `${c['Jam Mulai (Ex : 07:00)']}-${c['Jam Berakhir (Ex: 10:00)']}`,
-          dosen: c['Dosen'],
-        })),
-      })),
-      jadwalDigunakan: chosenSchedule
-        ? {
-            totalSks: chosenSchedule.totalSks,
-            disimpanPada: chosenSchedule.savedAt,
-            statusTerbaru: chosenValidation ? (chosenValidation.ok ? 'aman' : 'perlu-perhatian') : 'belum-dicek',
-            pesan: chosenValidation?.messages || [],
-          }
-        : null,
-    }),
-    [uniqueCourseList, selectedCourseCodes, totalSelectedSks, goldlistTags, scheduleOptions, chosenSchedule, chosenValidation],
-  );
 
   return (
     <div className="min-h-screen bg-white text-black" style={{ fontFamily: "'Poppins', ui-sans-serif, system-ui" }}>
@@ -751,67 +57,15 @@ export default function AdvancedScheduleApp() {
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
       `}</style>
 
-      {/* ===================== NAVBAR ===================== */}
-      <header className="sticky top-0 z-40 border-b border-black/10 bg-white/95 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 -ml-2 rounded-md hover:bg-black/5 cursor-pointer"
-              aria-label="Buka menu"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="leading-tight">
-                <p className="font-bold text-[15px] sm:text-lg tracking-tight">RESPONKU KRS</p>
-                <p className="hidden sm:block text-[11px] text-black/50 -mt-0.5">Susun KRS tanpa bentrok</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            {!session ? (
-              <button
-                onClick={() => signIn('google')}
-                className="bg-black hover:bg-black/80 text-white px-3.5 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition cursor-pointer"
-              >
-                <LogIn className="w-4 h-4" /> <span className="hidden xs:inline">Masuk Google</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-2 sm:gap-3">
-                <span className="hidden sm:inline text-sm font-medium text-black/70 max-w-[160px] truncate">{session.user?.name}</span>
-                <button
-                  onClick={() => signOut()}
-                  className="border border-black/15 hover:bg-black/5 text-black px-3 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" /> <span className="hidden sm:inline">Keluar</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar session={krs.session} onOpenSidebar={() => setIsSidebarOpen(true)} />
 
       <div className="max-w-7xl mx-auto flex">
-        {/* ===================== SIDEBAR (desktop) ===================== */}
+        {/* Sidebar desktop */}
         <aside className="hidden lg:block w-64 flex-shrink-0 border-r border-black/10 px-5 py-8 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
-          <SidebarContent
-            step={step}
-            totalSelectedSks={totalSelectedSks}
-            isOverLimit={isOverLimit}
-            sksPct={sksPct}
-            selectedCount={selectedCourseCodes.length}
-            goldlistTags={goldlistTags}
-            goldlistInput={goldlistInput}
-            setGoldlistInput={setGoldlistInput}
-            lecturerSuggestions={lecturerSuggestions}
-            addLecturerTag={addLecturerTag}
-            removeLecturerTag={removeLecturerTag}
-          />
+          <SidebarContent {...sidebarProps} />
         </aside>
 
-        {/* ===================== SIDEBAR (mobile drawer) ===================== */}
+        {/* Sidebar drawer mobile */}
         {isSidebarOpen && (
           <div className="lg:hidden fixed inset-0 z-50 flex">
             <div className="absolute inset-0 bg-black/30" onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />
@@ -824,453 +78,97 @@ export default function AdvancedScheduleApp() {
                 <X className="w-5 h-5" />
               </button>
               <div className="mt-8">
-                <SidebarContent
-                  step={step}
-                  totalSelectedSks={totalSelectedSks}
-                  isOverLimit={isOverLimit}
-                  sksPct={sksPct}
-                  selectedCount={selectedCourseCodes.length}
-                  goldlistTags={goldlistTags}
-                  goldlistInput={goldlistInput}
-                  setGoldlistInput={setGoldlistInput}
-                  lecturerSuggestions={lecturerSuggestions}
-                  addLecturerTag={addLecturerTag}
-                  removeLecturerTag={removeLecturerTag}
-                />
+                <SidebarContent {...sidebarProps} />
               </div>
             </div>
           </div>
         )}
 
-        {/* ===================== MAIN ===================== */}
         <main className="flex-1 min-w-0 px-4 sm:px-6 py-8 space-y-6">
-          {/* Step 1 — Sinkronisasi, terkunci setelah berhasil */}
-          <section className="bg-white border border-black/10 rounded-xl p-5 sm:p-6">
-            <div className="flex items-center gap-2 mb-1">
-              <Link2 className="w-4 h-4" />
-              <h2 className="font-bold text-base">1. Hubungkan Spreadsheet</h2>
-            </div>
-            <p className="text-sm text-black/50 mb-4">
-              Tempel link Google Sheets berisi daftar mata kuliah. Setelah tersinkron, link ini disimpan otomatis agar tidak perlu ditempel ulang. Mata kuliah yang sudah Anda pilih juga akan tetap tersimpan walau disinkronkan ulang.
-            </p>
+          <SyncSection
+            sheetUrl={krs.sheetUrl}
+            setSheetUrl={krs.setSheetUrl}
+            isLoading={krs.isLoading}
+            isLinkLocked={krs.isLinkLocked}
+            updateBadge={krs.updateBadge}
+            coursesCount={krs.courses.length}
+            droppedSelection={krs.droppedSelection}
+            onSync={() => krs.fetchSheetFromUrl()}
+            onUnlock={krs.handleUnlockLink}
+            lastCheckedAt={krs.lastCheckedAt} // <-- Tambahkan baris ini
+          />
 
-            {isLinkLocked ? (
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 border border-black/10 bg-black/[0.03] rounded-md px-3 py-2.5 text-sm text-black/60 min-w-0">
-                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate">{sheetUrl}</span>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => fetchSheetFromUrl()}
-                    disabled={isLoading}
-                    className="border border-black/15 hover:bg-black/5 px-3.5 py-2.5 rounded-md text-sm font-medium flex items-center gap-2 cursor-pointer disabled:opacity-60"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                    Cek Pembaruan
-                  </button>
-                  <button
-                    onClick={handleUnlockLink}
-                    className="border border-black/15 hover:bg-black/5 px-3 py-2.5 rounded-md text-sm flex items-center gap-2 cursor-pointer"
-                  >
-                    <Pencil className="w-4 h-4" /> Ubah
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                  value={sheetUrl}
-                  onChange={(e) => setSheetUrl(e.target.value)}
-                  className="flex-1 border border-black/15 rounded-md px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-black focus:border-transparent"
-                />
-                <button
-                  onClick={() => fetchSheetFromUrl()}
-                  disabled={isLoading}
-                  className="bg-black text-white px-5 py-2.5 rounded-md hover:bg-black/80 transition flex items-center justify-center gap-2 text-sm font-medium cursor-pointer disabled:opacity-60"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  {isLoading ? 'Menyinkronkan...' : 'Sinkronkan'}
-                </button>
-              </div>
-            )}
+          <RealtimeSyncPanel
+            isLinkLocked={krs.isLinkLocked}
+            realtimeSettings={krs.realtimeSettings}
+            onToggleRealtime={krs.setRealtimeEnabled}
+            onChangeIntervalMs={krs.setRealtimeIntervalMs}
+            emailReminder={krs.emailReminder}
+            onToggleEmailReminder={krs.setEmailReminderEnabled}
+            onChangeEmail={krs.setReminderEmail}
+            lastCheckedAt={krs.lastCheckedAt}
+            isCheckingRealtime={krs.isCheckingRealtime}
+          />
 
-            {/* Badge status pembaruan */}
-            {updateBadge === 'first' && (
-              <p className="mt-3 text-xs text-black/60 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> {courses.length} baris jadwal berhasil dimuat &amp; link disimpan.
-              </p>
-            )}
-            {updateBadge === 'same' && (
-              <p className="mt-3 text-xs text-black/60 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Jadwal terkini — tidak ada perubahan sejak terakhir dicek.
-              </p>
-            )}
-            {updateBadge === 'changed' && (
-              <p className="mt-3 inline-flex text-xs font-medium text-black bg-black/5 border border-dashed border-black/30 rounded-full px-3 py-1.5 items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Ada perubahan pada spreadsheet — lihat detail di bawah.
-              </p>
-            )}
-
-            {droppedSelection.length > 0 && (
-              <p className="mt-2 text-xs text-black/70 bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
-                {droppedSelection.length} mata kuliah yang sebelumnya Anda pilih sudah tidak ada di spreadsheet dan otomatis dihapus dari pilihan: {droppedSelection.join(', ')}.
-              </p>
-            )}
-          </section>
-
-          {/* Panel perubahan detail — ditambah / dihapus / diubah */}
-          {changeReport && changeReport.hasChanges && (
-            <section className="bg-white border border-black/15 rounded-xl p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <History className="w-4 h-4" />
-                  <h2 className="font-bold text-base">Perubahan Sejak Sinkron Terakhir</h2>
-                </div>
-                <button
-                  onClick={() => setChangeReport(null)}
-                  className="p-1.5 rounded-md hover:bg-black/5 cursor-pointer flex-shrink-0"
-                  aria-label="Tutup panel perubahan"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {changeReport.added.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
-                      <Plus className="w-3.5 h-3.5" /> Ditambahkan ({changeReport.added.length})
-                    </p>
-                    <ul className="space-y-1.5">
-                      {changeReport.added.map((item) => (
-                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
-                          <span className="font-semibold">{item.name}</span>{' '}
-                          <span className="text-black/50 text-xs">
-                            ({item.code} · Kelas {item.kelas || '-'} · {item.after?.['Hari']}, {item.after?.['Jam Mulai (Ex : 07:00)']}–{item.after?.['Jam Berakhir (Ex: 10:00)']})
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {changeReport.removed.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
-                      <Minus className="w-3.5 h-3.5" /> Dihapus ({changeReport.removed.length})
-                    </p>
-                    <ul className="space-y-1.5">
-                      {changeReport.removed.map((item) => (
-                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
-                          <span className="font-semibold">{item.name}</span>{' '}
-                          <span className="text-black/50 text-xs">
-                            ({item.code} · Kelas {item.kelas || '-'} · dulunya {item.before?.['Hari']}, {item.before?.['Jam Mulai (Ex : 07:00)']}–{item.before?.['Jam Berakhir (Ex: 10:00)']})
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {changeReport.changed.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
-                      <Pencil className="w-3.5 h-3.5" /> Diubah ({changeReport.changed.length})
-                    </p>
-                    <ul className="space-y-1.5">
-                      {changeReport.changed.map((item) => (
-                        <li key={item.key} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
-                          <span className="font-semibold">{item.name}</span>{' '}
-                          <span className="text-black/50 text-xs">
-                            ({item.code} · Kelas {item.kelas || '-'})
-                          </span>
-                          <ul className="mt-1 ml-4 list-disc text-xs text-black/60 space-y-0.5">
-                            {item.detail?.map((d, i) => (
-                              <li key={i}>{d}</li>
-                            ))}
-                          </ul>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </section>
+          {krs.changeReport && krs.changeReport.hasChanges && (
+            <ChangeReportPanel changeReport={krs.changeReport} onClose={() => krs.setChangeReport(null)} />
           )}
 
-          {/* Panel status jadwal yang sedang dipakai */}
-          {chosenSchedule && (
-            <section
-              className={`rounded-xl p-5 sm:p-6 border ${
-                chosenValidation && !chosenValidation.ok ? 'border-black bg-black/[0.02]' : 'border-black/15 bg-white'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {chosenValidation && !chosenValidation.ok ? (
-                    <ShieldAlert className="w-4 h-4" />
-                  ) : (
-                    <ShieldCheck className="w-4 h-4" />
-                  )}
-                  <h2 className="font-bold text-base">Jadwal yang Sedang Digunakan</h2>
-                </div>
-                <button
-                  onClick={handleClearChosenSchedule}
-                  className="text-xs border border-black/15 hover:bg-black/5 px-3 py-1.5 rounded-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Batalkan Pilihan
-                </button>
-              </div>
-
-              {chosenValidation && (
-                <ul className="space-y-1.5 mb-4">
-                  {chosenValidation.messages.map((m, i) => (
-                    <li key={i} className="text-sm bg-black/[0.03] border border-black/10 rounded-md px-3 py-2">
-                      {m}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <p className="text-xs text-black/50 mb-3">
-                {chosenScheduleResolved.length} mata kuliah · {chosenValidation ? chosenValidation.totalSksAfter : chosenSchedule.totalSks} SKS
-                {chosenValidation && chosenValidation.totalSksBefore !== chosenValidation.totalSksAfter
-                  ? ` (sebelumnya ${chosenValidation.totalSksBefore} SKS)`
-                  : ''}
-              </p>
-
-              <div className="space-y-2">
-                {chosenScheduleResolved.map((item: any, idx) => (
-                  <div
-                    key={idx}
-                    className={`border rounded-lg p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 ${
-                      item.__missing ? 'border-black border-dashed bg-black/[0.03]' : 'border-black/10'
-                    }`}
-                  >
-                    <div>
-                      <span className="font-semibold">{item['Nama Mata Kuliah']}</span>{' '}
-                      <span className="text-black/50 text-xs">({item['Kode Mata Kuliah']} · Kelas {item['Kelas'] || '-'})</span>
-                      {item.__missing && <span className="ml-2 text-xs font-medium">— sudah tidak tersedia</span>}
-                    </div>
-                    {!item.__missing && (
-                      <span className="text-xs text-black/60 font-mono">
-                        {item['Hari']} · {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
+          {krs.chosenSchedule && (
+            <ChosenSchedulePanel
+              chosenSchedule={krs.chosenSchedule}
+              chosenValidation={krs.chosenValidation}
+              chosenScheduleResolved={krs.chosenScheduleResolved}
+              onClear={krs.handleClearChosenSchedule}
+            />
           )}
 
-          {/* Step 2 — Pilih mata kuliah */}
-          {uniqueCourseList.length > 0 && (
-            <section className="bg-white border border-black/10 rounded-xl p-5 sm:p-6">
-              <div className="flex justify-between items-start flex-wrap gap-3 mb-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <ListChecks className="w-4 h-4" />
-                    <h2 className="font-bold text-base">2. Pilih Mata Kuliah</h2>
-                  </div>
-                  <p className="text-sm text-black/50">Centang mata kuliah yang ingin diambil. Maksimal {MAX_SKS} SKS.</p>
-                </div>
-                <div
-                  className={`px-3.5 py-2 rounded-md text-sm font-semibold flex items-center gap-2 border ${
-                    isOverLimit ? 'border-black bg-black text-white' : 'border-black/15 bg-black/[0.03]'
-                  }`}
-                >
-                  <Layers className="w-4 h-4" /> {totalSelectedSks}/{MAX_SKS} SKS
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[26rem] overflow-y-auto p-1">
-                {uniqueCourseList.map((course) => {
-                  const isChecked = selectedCourseCodes.includes(course.code);
-                  const hasNoLecturer = course.lecturers.length === 0;
-                  return (
-                    <button
-                      type="button"
-                      key={course.code}
-                      onClick={() => toggleCourseSelection(course.code)}
-                      className={`relative text-left p-3.5 rounded-lg border transition cursor-pointer ${
-                        isChecked ? 'bg-black border-black text-white' : 'bg-white border-black/15 hover:border-black/40'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center gap-2">
-                        <span className="font-mono text-xs font-semibold">{course.code}</span>
-                        <span className={`flex items-center gap-1 text-[11px] ${isChecked ? 'text-white/80' : 'text-black/50'}`}>
-                          {isChecked ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                          {course.sks} SKS
-                        </span>
-                      </div>
-                      <p className="font-semibold text-sm mt-1.5 leading-snug">{course.name}</p>
-                      {hasNoLecturer ? (
-                        <p className={`text-xs mt-1 flex items-center gap-1 ${isChecked ? 'text-white/70' : 'text-black/40'}`}>
-                          <Info className="w-3 h-3" /> Dosen belum tersedia
-                        </p>
-                      ) : (
-                        <p className={`text-xs mt-1 line-clamp-2 ${isChecked ? 'text-white/75' : 'text-black/50'}`}>
-                          {course.lecturers.join(', ')}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between border-t border-black/10 pt-4">
-                <p className="text-xs text-black/50">
-                  {selectedCourseCodes.length} mata kuliah dipilih. Atur dosen favorit di sidebar untuk satu rekomendasi terbaik.
-                </p>
-                <button
-                  onClick={generateBestSchedule}
-                  className="bg-black text-white font-medium py-2.5 px-5 rounded-md hover:bg-black/80 transition text-sm flex items-center justify-center gap-2 cursor-pointer flex-shrink-0"
-                >
-                  <Wand2 className="w-4 h-4" /> Susun Jadwal Otomatis
-                </button>
-              </div>
-            </section>
+          {krs.uniqueCourseList.length > 0 && (
+            <CourseSelectionSection
+              uniqueCourseList={krs.uniqueCourseList}
+              selectedCourseCodes={krs.selectedCourseCodes}
+              totalSelectedSks={krs.totalSelectedSks}
+              isOverLimit={krs.isOverLimit}
+              onToggleCourse={krs.toggleCourseSelection}
+              onGenerate={krs.generateBestSchedule}
+              dayOffSettings={krs.dayOffSettings}
+              onToggleDayOff={krs.setDayOffEnabled}
+              onChangePreferredOffDay={krs.setPreferredOffDay}
+            />
           )}
 
-          {/* Status */}
-          {conflictAlert && (
-            <div
-              className={`p-4 rounded-xl flex items-start gap-3 text-sm font-medium border ${
-                conflictAlert.startsWith('Peringatan') ? 'border-dashed border-black/40 bg-black/[0.02]' : 'border-black/15 bg-black/[0.03]'
-              }`}
-            >
-              {conflictAlert.startsWith('Peringatan') ? (
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              )}
-              <span>{conflictAlert}</span>
-            </div>
+          {krs.uniqueCourseList.length > 0 && (
+            <CustomScheduleBuilder
+              uniqueCourseList={krs.uniqueCourseList}
+              selectedCourseCodes={krs.selectedCourseCodes}
+              classOptionsByCode={krs.classOptionsByCode}
+              customPicks={krs.customPicks}
+              onPick={krs.setCustomPick}
+              onReset={krs.clearCustomPicks}
+              customScheduleResolved={krs.customScheduleResolved}
+              customConflicts={krs.customConflicts}
+              customTotalSks={krs.customTotalSks}
+              customIsComplete={krs.customIsComplete}
+              onUseCustomSchedule={krs.useCustomScheduleAsChosen}
+            />
           )}
 
-          {/* Step 3 — Hasil */}
-          {scheduleOptions.length > 0 && (
-            <section className="bg-black text-white rounded-xl p-5 sm:p-6 overflow-hidden">
-              <div className="flex justify-between items-start flex-wrap gap-3 mb-4">
-                <div>
-                  <h2 className="font-bold text-lg">
-                    {scheduleOptions.length > 1 ? `Opsi Jadwal (${scheduleOptions.length})` : 'Jadwal Optimal'}
-                  </h2>
-                  <p className="text-sm text-white/50 mt-0.5">{currentSchedule.length} mata kuliah · {scheduleSks(currentSchedule)} SKS</p>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => handleUseSchedule(currentSchedule)}
-                    className={`px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer border ${
-                      chosenSignature === scheduleSignature(currentSchedule)
-                        ? 'bg-white text-black border-white'
-                        : 'border-white/25 hover:bg-white/10'
-                    }`}
-                  >
-                    {chosenSignature === scheduleSignature(currentSchedule) ? (
-                      <BookmarkCheck className="w-4 h-4" />
-                    ) : (
-                      <Bookmark className="w-4 h-4" />
-                    )}
-                    {chosenSignature === scheduleSignature(currentSchedule) ? 'Sedang Digunakan' : 'Gunakan Jadwal Ini'}
-                  </button>
-                  <button
-                    onClick={() => handleCopyText(currentSchedule)}
-                    className="border border-white/25 hover:bg-white/10 px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer"
-                  >
-                    {copyStatus ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    {copyStatus ? 'Disalin!' : 'Salin sebagai Teks'}
-                  </button>
-                </div>
-              </div>
+          <ConflictAlert message={krs.conflictAlert} />
 
-              {/* Tab opsi, hanya muncul kalau ada lebih dari 1 opsi — bisa dipakai untuk membandingkan */}
-              {scheduleOptions.length > 1 && (
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {scheduleOptions.map((opt, i) => {
-                    const isChosenOne = chosenSignature === scheduleSignature(opt);
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => setActiveOption(i)}
-                        className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition cursor-pointer border flex items-center gap-1.5 ${
-                          activeOption === i ? 'bg-white text-black border-white' : 'border-white/25 text-white/70 hover:bg-white/10'
-                        }`}
-                      >
-                        {isChosenOne && <BookmarkCheck className="w-3.5 h-3.5" />}
-                        Opsi {String.fromCharCode(65 + i)} · {scheduleSks(opt)} SKS
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Tabel — layar >= md */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="text-white/50 text-xs uppercase tracking-wide border-b border-white/15">
-                      <th className="py-2.5 pr-3 font-medium">Waktu</th>
-                      <th className="py-2.5 pr-3 font-medium">Kode</th>
-                      <th className="py-2.5 pr-3 font-medium">Mata Kuliah</th>
-                      <th className="py-2.5 pr-3 font-medium">SKS</th>
-                      <th className="py-2.5 pr-3 font-medium">Kelas</th>
-                      <th className="py-2.5 pr-3 font-medium">Dosen</th>
-                      <th className="py-2.5 font-medium">Ruangan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentSchedule.map((item, idx) => (
-                      <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition">
-                        <td className="py-3 pr-3 font-mono whitespace-nowrap">
-                          {item['Hari']}
-                          <br />
-                          <span className="text-xs text-white/60">
-                            {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-3 font-mono text-xs text-white/70">{item['Kode Mata Kuliah']}</td>
-                        <td className="py-3 pr-3 font-semibold">{item['Nama Mata Kuliah']}</td>
-                        <td className="py-3 pr-3">{item['SKS'] || 3}</td>
-                        <td className="py-3 pr-3">
-                          <span className="bg-white/10 text-xs px-2 py-0.5 rounded font-mono">{item['Kelas']}</span>
-                        </td>
-                        <td className="py-3 pr-3 text-xs text-white/70">{item['Dosen'] || 'Belum ditentukan'}</td>
-                        <td className="py-3 text-xs text-white/70">{item['Ruangan \n(Diisi Fakultas)'] || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Kartu — layar < md */}
-              <div className="md:hidden space-y-3">
-                {currentSchedule.map((item, idx) => (
-                  <div key={idx} className="border border-white/15 rounded-lg p-3.5">
-                    <div className="flex justify-between items-start gap-2">
-                      <p className="font-semibold text-sm leading-snug">{item['Nama Mata Kuliah']}</p>
-                      <span className="bg-white/10 text-[11px] px-2 py-0.5 rounded font-mono flex-shrink-0">{item['Kelas']}</span>
-                    </div>
-                    <p className="font-mono text-sm mt-2 text-white/80">
-                      {item['Hari']} · {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-white/60">
-                      <span>{item['Kode Mata Kuliah']}</span>
-                      <span>{item['SKS'] || 3} SKS</span>
-                      <span>{item['Dosen'] || 'Dosen belum ditentukan'}</span>
-                      <span>{item['Ruangan \n(Diisi Fakultas)'] || '-'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+          {krs.scheduleOptions.length > 0 && (
+            <ScheduleResultSection
+              scheduleOptions={krs.scheduleOptions}
+              activeOption={krs.activeOption}
+              setActiveOption={krs.setActiveOption}
+              currentSchedule={krs.currentSchedule}
+              chosenSignature={krs.chosenSignature}
+              copyStatus={krs.copyStatus}
+              onUseSchedule={krs.handleUseSchedule}
+              onCopyText={krs.handleCopyText}
+            />
           )}
 
-          {/* Empty state */}
-          {uniqueCourseList.length === 0 && courses.length === 0 && (
+          {krs.uniqueCourseList.length === 0 && krs.courses.length === 0 && (
             <div className="text-center py-16 text-black/40">
               <BookOpen className="w-8 h-8 mx-auto mb-3" />
               <p className="text-sm">Belum ada data. Tempel link spreadsheet di atas untuk memulai.</p>
@@ -1279,136 +177,9 @@ export default function AdvancedScheduleApp() {
         </main>
       </div>
 
-      {/* ===================== FOOTER ===================== */}
-      <footer className="border-t border-black/10 mt-6">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-black/50">
-          <p>© {new Date().getFullYear()} RESPONKU KRS by Nivalesha</p>
-          <p className="font-mono">Batas maksimum: {MAX_SKS} SKS / semester</p>
-        </div>
-      </footer>
+      <Footer />
 
-      {/* ===================== CHATBOT (Groq) ===================== */}
-      <ScheduleChatbot context={chatContext} />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Konten sidebar — dipakai di versi desktop & drawer mobile
-// ---------------------------------------------------------------------------
-function SidebarContent({
-  step,
-  totalSelectedSks,
-  isOverLimit,
-  sksPct,
-  selectedCount,
-  goldlistTags,
-  goldlistInput,
-  setGoldlistInput,
-  lecturerSuggestions,
-  addLecturerTag,
-  removeLecturerTag,
-}: {
-  step: number;
-  totalSelectedSks: number;
-  isOverLimit: boolean;
-  sksPct: number;
-  selectedCount: number;
-  goldlistTags: string[];
-  goldlistInput: string;
-  setGoldlistInput: (v: string) => void;
-  lecturerSuggestions: string[];
-  addLecturerTag: (v: string) => void;
-  removeLecturerTag: (v: string) => void;
-}) {
-  const steps = [
-    { n: 1, label: 'Hubungkan spreadsheet' },
-    { n: 2, label: 'Pilih mata kuliah' },
-    { n: 3, label: 'Lihat jadwal' },
-  ];
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-3">Progres</p>
-        <ol className="space-y-3">
-          {steps.map((s) => (
-            <li key={s.n} className="flex items-center gap-2.5 text-sm">
-              <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-mono flex-shrink-0 ${
-                  step >= s.n ? 'bg-black text-white' : 'bg-black/5 text-black/50 border border-black/15'
-                }`}
-              >
-                {s.n}
-              </span>
-              <span className={step >= s.n ? 'text-black font-medium' : 'text-black/50'}>{s.label}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-3">Ringkasan SKS</p>
-        <div className="h-2 rounded-full bg-black/10 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${isOverLimit ? 'bg-black' : 'bg-black/70'}`}
-            style={{ width: `${sksPct}%` }}
-          />
-        </div>
-        <p className="font-mono text-sm mt-2">{totalSelectedSks} / {24} SKS</p>
-        <p className="text-xs text-black/50 mt-0.5">{selectedCount} mata kuliah dipilih</p>
-      </div>
-
-      <div>
-        <label className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
-          <Star className="w-3.5 h-3.5" /> Dosen favorit
-        </label>
-
-        {goldlistTags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {goldlistTags.map((tag) => (
-              <span key={tag} className="inline-flex items-center gap-1 bg-black text-white text-xs px-2.5 py-1 rounded-full">
-                {tag}
-                <button onClick={() => removeLecturerTag(tag)} className="hover:opacity-70 cursor-pointer" aria-label={`Hapus ${tag}`}>
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Pilih dari daftar atau ketik nama"
-            value={goldlistInput}
-            onChange={(e) => setGoldlistInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addLecturerTag(goldlistInput);
-              }
-            }}
-            className="w-full border border-black/15 bg-white rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black focus:border-transparent"
-          />
-          {goldlistInput && lecturerSuggestions.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full bg-white border border-black/15 rounded-md shadow-lg overflow-hidden">
-              {lecturerSuggestions.map((name) => (
-                <button
-                  key={name}
-                  onClick={() => addLecturerTag(name)}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 cursor-pointer"
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <p className="text-xs text-black/50 mt-2">
-          Ketik lalu tekan Enter untuk menambah manual, atau pilih dari daftar dosen yang ada di spreadsheet. Kosongkan bila ingin melihat beberapa opsi jadwal sekaligus.
-        </p>
-      </div>
+      <ScheduleChatbot context={krs.chatContext} />
     </div>
   );
 }

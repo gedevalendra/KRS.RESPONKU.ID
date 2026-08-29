@@ -1,0 +1,105 @@
+// // ---------------------------------------------------------------------------
+// // Endpoint: POST /api/notify-schedule-change
+// //
+// // Dipanggil dari hooks/useKrsPlanner.ts (fungsi `notifyScheduleChangeByEmail`)
+// // setiap kali pengecekan (manual atau realtime) menemukan perubahan pada
+// // spreadsheet, DAN pengguna sudah mengaktifkan "Ingatkan lewat email".
+// //
+// // CATATAN PENTING SEBELUM DIPAKAI DI PRODUKSI:
+// // File ini memakai nodemailer via SMTP sebagai contoh implementasi paling
+// // umum. Supaya benar-benar mengirim email, Anda perlu:
+// //   1) Install dependency:  npm install nodemailer
+// //   2) Isi environment variable berikut (mis. di .env.local):
+// //        SMTP_HOST=smtp.gmail.com
+// //        SMTP_PORT=465
+// //        SMTP_SECURE=true
+// //        SMTP_USER=akun-pengirim@gmail.com
+// //        SMTP_PASS=app-password-anda
+// //        SMTP_FROM="RESPONKU KRS <akun-pengirim@gmail.com>"
+// //   3) Kalau pakai layanan lain (Resend, SendGrid, dsb), ganti bagian
+// //      "kirim email" di bawah dengan SDK/API layanan tersebut — struktur
+// //      request/response endpoint ini tidak perlu berubah.
+// // ---------------------------------------------------------------------------
+
+// import { NextRequest, NextResponse } from 'next/server';
+// // PENTING: sesuaikan path import ini dengan lokasi folder `lib/` yang asli
+// // di project Anda (mis. jika halaman KRS ada di app/krs/lib/types.ts dan
+// // route ini ditaruh di app/api/notify-schedule-change/route.ts, maka
+// // pathnya menjadi '../../krs/lib/types').
+// import type { ChangeReport } from '../../lib/types';
+
+// function buildEmailText(diff: ChangeReport): string {
+//   const lines: string[] = ['Ada perubahan pada spreadsheet jadwal KRS Anda:', ''];
+
+//   if (diff.added.length > 0) {
+//     lines.push(`DITAMBAHKAN (${diff.added.length}):`);
+//     diff.added.forEach((item) => lines.push(`  - ${item.name} (${item.code}, Kelas ${item.kelas || '-'})`));
+//     lines.push('');
+//   }
+//   if (diff.removed.length > 0) {
+//     lines.push(`DIHAPUS (${diff.removed.length}):`);
+//     diff.removed.forEach((item) => lines.push(`  - ${item.name} (${item.code}, Kelas ${item.kelas || '-'})`));
+//     lines.push('');
+//   }
+//   if (diff.changed.length > 0) {
+//     lines.push(`DIUBAH (${diff.changed.length}):`);
+//     diff.changed.forEach((item) => {
+//       lines.push(`  - ${item.name} (${item.code}, Kelas ${item.kelas || '-'})`);
+//       (item.detail || []).forEach((d) => lines.push(`      ${d}`));
+//     });
+//     lines.push('');
+//   }
+
+//   lines.push('Buka aplikasi RESPONKU KRS untuk melihat detail lengkap & memastikan jadwal Anda masih aman.');
+//   return lines.join('\n');
+// }
+
+// export async function POST(req: NextRequest) {
+//   try {
+//     const body = await req.json();
+//     const email: string | undefined = body?.email;
+//     const diff: ChangeReport | undefined = body?.diff;
+
+//     if (!email || !diff) {
+//       return NextResponse.json({ ok: false, error: 'Field "email" dan "diff" wajib diisi.' }, { status: 400 });
+//     }
+
+//     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+//     if (!emailPattern.test(email)) {
+//       return NextResponse.json({ ok: false, error: 'Format email tidak valid.' }, { status: 400 });
+//     }
+
+//     const requiredEnv = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'];
+//     const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+//     if (missingEnv.length > 0) {
+//       // Belum dikonfigurasi — jangan bikin request gagal keras di sisi client,
+//       // cukup laporkan supaya developer tahu env belum diisi.
+//       console.warn(`[notify-schedule-change] SMTP belum dikonfigurasi, env hilang: ${missingEnv.join(', ')}`);
+//       return NextResponse.json(
+//         { ok: false, error: 'Pengiriman email belum dikonfigurasi di server (SMTP env belum diisi).' },
+//         { status: 501 },
+//       );
+//     }
+
+//     // Import dinamis supaya build tidak gagal kalau nodemailer belum di-install.
+//     const nodemailer = await import('nodemailer');
+//     const transporter = nodemailer.createTransport({
+//       host: process.env.SMTP_HOST,
+//       port: Number(process.env.SMTP_PORT),
+//       secure: process.env.SMTP_SECURE === 'true',
+//       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+//     });
+
+//     await transporter.sendMail({
+//       from: process.env.SMTP_FROM,
+//       to: email,
+//       subject: 'Perubahan pada Jadwal KRS Anda',
+//       text: buildEmailText(diff),
+//     });
+
+//     return NextResponse.json({ ok: true });
+//   } catch (error) {
+//     console.error('[notify-schedule-change] Gagal mengirim email:', error);
+//     return NextResponse.json({ ok: false, error: 'Gagal mengirim email notifikasi.' }, { status: 500 });
+//   }
+// }
