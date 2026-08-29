@@ -1,6 +1,7 @@
 'use client';
 
-import { Star, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Star, X, Users } from 'lucide-react';
 
 interface SidebarContentProps {
   step: number;
@@ -22,7 +23,6 @@ const STEPS = [
   { n: 3, label: 'Lihat jadwal' },
 ];
 
-// Konten sidebar — dipakai di versi desktop & drawer mobile (lihat page.tsx)
 export default function SidebarContent({
   step,
   totalSelectedSks,
@@ -36,6 +36,25 @@ export default function SidebarContent({
   addLecturerTag,
   removeLecturerTag,
 }: SidebarContentProps) {
+  const [visitorCount, setVisitorCount] = useState<number | null>(null);
+
+  // Mengambil dan mengakumulasi jumlah pengunjung secara realtime saat sidebar dimuat
+  useEffect(() => {
+    async function fetchVisitorCount() {
+      try {
+        // Menggunakan API publik gratis untuk hitungan visitor (bisa diganti namespace unik web kamu)
+        const res = await fetch('https://api.countapi.xyz/hit/responku-krs-nivalesha/visits');
+        const data = await res.json();
+        if (data && typeof data.value === 'number') {
+          setVisitorCount(data.value);
+        }
+      } catch (err) {
+        console.warn('Gagal memuat jumlah pengunjung:', err);
+      }
+    }
+    fetchVisitorCount();
+  }, []);
+
   return (
     <div className="space-y-8">
       <div>
@@ -117,6 +136,18 @@ export default function SidebarContent({
         <p className="text-xs text-black/50 mt-2">
           Ketik lalu tekan Enter untuk menambah manual, atau pilih dari daftar dosen yang ada di spreadsheet. Kosongkan bila ingin melihat beberapa opsi jadwal sekaligus.
         </p>
+      </div>
+
+      {/* Widget Total Pengunjung Realtime */}
+      <div className="pt-4 border-t border-black/10">
+        <div className="flex items-center justify-between text-xs text-black/60 bg-black/[0.02] border border-black/10 rounded-lg px-3 py-2.5">
+          <span className="flex items-center gap-1.5 font-medium">
+            <Users className="w-4 h-4 text-black" /> Total Pengunjung
+          </span>
+          <span className="font-mono font-bold text-black">
+            {visitorCount !== null ? visitorCount.toLocaleString('id-ID') : '...'}
+          </span>
+        </div>
       </div>
     </div>
   );
