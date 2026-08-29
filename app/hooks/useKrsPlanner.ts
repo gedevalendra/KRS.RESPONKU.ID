@@ -207,6 +207,14 @@ if (savedUrl) {
     }
   }, [scheduleOptions, activeOption]);
 
+  // Kalau opsi yang lagi aktif kebuang (misal karena jadi basi setelah sinkron
+  // ulang), pindahkan tampilan ke opsi pertama yang masih ada.
+  useEffect(() => {
+    if (activeOption !== 0 && activeOption >= scheduleOptions.length) {
+      setActiveOption(0);
+    }
+  }, [scheduleOptions, activeOption]);
+
   // -------------------------------------------------------------------------
   // Sinkronisasi spreadsheet (mendukung pilihan tab)
   // -------------------------------------------------------------------------
@@ -238,10 +246,26 @@ if (savedUrl) {
 
       const arrayBuffer = await response.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
-      const allTabs = wb.SheetNames;
+
+      // Tab yang di-hide/dinonaktifkan di Google Sheets tetap ikut terbawa saat
+      // export XLSX, tapi ditandai lewat wb.Workbook.Sheets[i].Hidden (1/2).
+      // Tab seperti ini kita sembunyikan dari pilihan supaya user tidak bisa
+      // memilih tab yang memang sengaja dinonaktifkan pemilik spreadsheet.
+      const hiddenTabNames = new Set(
+        ((wb.Workbook?.Sheets || []) as { name?: string; Hidden?: number }[])
+          .filter((s) => !!s.Hidden && s.Hidden > 0)
+          .map((s) => s.name)
+          .filter((name): name is string => !!name),
+      );
+      const allTabs = wb.SheetNames.filter((name) => !hiddenTabNames.has(name));
       setSheetTabs(allTabs);
 
-      const targetTab = tabOverride ?? (activeTabName && allTabs.includes(activeTabName) ? activeTabName : allTabs[0]);
+      const targetTab =
+        tabOverride && allTabs.includes(tabOverride)
+          ? tabOverride
+          : activeTabName && allTabs.includes(activeTabName)
+          ? activeTabName
+          : allTabs[0];
       setActiveTabName(targetTab);
 
       const ws = wb.Sheets[targetTab];
@@ -278,6 +302,17 @@ if (savedUrl) {
       } else {
         setChosenValidation(null);
       }
+
+      // Hasil "opsi jadwal" yang sudah digenerate sebelumnya bisa jadi basi
+      // kalau sinkron ulang mengubah/menghapus mata kuliah yang dipakai di
+      // opsi tersebut. Buang opsi yang salah satu mata kuliahnya sudah tidak
+      // ada lagi di data terbaru, supaya hasil lama tidak nyangkut di layar.
+      const validKeySet = new Set(cleanedData.map((c) => courseKey(c)));
+      setScheduleOptions((prevOptions) => {
+        if (prevOptions.length === 0) return prevOptions;
+        const stillValidOptions = prevOptions.filter((opt) => opt.every((item) => validKeySet.has(courseKey(item))));
+        return stillValidOptions.length === prevOptions.length ? prevOptions : stillValidOptions;
+      });
 
       setCourses(cleanedData);
       setIsLinkLocked(true);
@@ -495,7 +530,10 @@ if (savedUrl) {
   const currentSchedule = scheduleOptions[activeOption] || [];
 
   const handleCopyText = async (schedule: Course[]) => {
-    if (schedule.length === 0) return;
+    if (schedule.length === 0) {
+      alert('Belum ada jadwal yang disimpan. Klik "Gunakan Jadwal Ini" dulu sebelum menyalin.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(buildScheduleText(schedule));
       setCopyStatus(true);

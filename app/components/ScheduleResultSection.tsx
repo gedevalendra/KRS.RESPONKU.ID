@@ -10,6 +10,7 @@ interface ScheduleResultSectionProps {
   setActiveOption: (i: number) => void;
   currentSchedule: Course[];
   chosenSignature: string | null;
+  chosenScheduleResolved: Course[];
   copyStatus: boolean;
   onUseSchedule: (schedule: Course[]) => void;
   onCopyText: (schedule: Course[]) => void;
@@ -22,6 +23,7 @@ export default function ScheduleResultSection({
   setActiveOption,
   currentSchedule,
   chosenSignature,
+  chosenScheduleResolved,
   copyStatus,
   onUseSchedule,
   onCopyText,
@@ -48,7 +50,8 @@ export default function ScheduleResultSection({
             {isCurrentChosen ? 'Sedang Digunakan' : 'Gunakan Jadwal Ini'}
           </button>
           <button
-            onClick={() => onCopyText(currentSchedule)}
+            onClick={() => onCopyText(chosenScheduleResolved)}
+            title="Menyalin jadwal yang sudah disimpan (Gunakan Jadwal Ini), bukan opsi yang sedang dilihat"
             className="border border-white/25 hover:bg-white/10 px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer"
           >
             {copyStatus ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}

@@ -153,6 +153,7 @@ if (!krs.isMounted) {
               setActiveOption={krs.setActiveOption}
               currentSchedule={krs.currentSchedule}
               chosenSignature={krs.chosenSignature}
+              chosenScheduleResolved={krs.chosenScheduleResolved}
               copyStatus={krs.copyStatus}
               onUseSchedule={krs.handleUseSchedule}
               onCopyText={krs.handleCopyText}
