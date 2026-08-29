@@ -52,7 +52,7 @@ export default function ScheduleResultSection({
             className="border border-white/25 hover:bg-white/10 px-3.5 py-2 rounded-md text-sm flex items-center gap-2 transition cursor-pointer"
           >
             {copyStatus ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copyStatus ? 'Disalin!' : 'Salin sebagai Teks'}
+            {copyStatus ? 'Disalin!' : 'Salin'}
           </button>
         </div>
       </div>
