@@ -33,7 +33,7 @@ export default function SyncSection({
     <section className="bg-white border border-black/10 rounded-xl p-5 sm:p-6">
       <div className="flex items-center gap-2 mb-1">
         <Link2 className="w-4 h-4" />
-        <h2 className="font-bold text-base">1. Hubungkan Spreadsheet</h2>
+        <h2 className="font-bold text-base">Hubungkan Spreadsheet</h2>
       </div>
       <p className="text-sm text-black/50 mb-4">
         Tempel link Google Sheets berisi daftar mata kuliah. Setelah tersinkron, link ini disimpan otomatis agar tidak perlu ditempel ulang. Mata kuliah yang sudah Anda pilih juga akan tetap tersimpan walau disinkronkan ulang.

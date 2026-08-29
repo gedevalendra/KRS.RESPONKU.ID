@@ -35,7 +35,7 @@ export default function CourseSelectionSection({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <ListChecks className="w-4 h-4" />
-            <h2 className="font-bold text-base">2. Pilih Mata Kuliah</h2>
+            <h2 className="font-bold text-base">Pilih Mata Kuliah</h2>
           </div>
           <p className="text-sm text-black/50">Centang mata kuliah yang ingin diambil. Maksimal {MAX_SKS} SKS.</p>
         </div>
