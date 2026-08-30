@@ -267,7 +267,10 @@ export default function BerandaPage() {
               <div key={idx} className="border border-slate-100 bg-slate-50/50 rounded-xl p-3 flex items-center justify-between text-sm">
                 <div>
                   <p className="font-semibold text-slate-800 line-clamp-1">{cls.namaMatkul}</p>
-                  <p className="text-xs text-slate-500">{cls.formattedStart} - {cls.formattedEnd}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-slate-500">{cls.formattedStart} - {cls.formattedEnd}</p>
+                    <p className="text-xs text-slate-500">{cls.ruangan}</p>
+                  </div>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-md font-medium ${cls.isOngoing ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}>
                   {cls.isOngoing ? 'Aktif' : (currentTotalSeconds > cls.endSeconds ? 'Selesai' : 'Akan Datang')}
