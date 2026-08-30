@@ -10,11 +10,12 @@ interface ChatMessage {
   content: string;
 }
 
-// Palet "kartu KRS": kertas, tinta, aksen stempel mustard — bukan hitam/putih default
-const INK = '#1C2434';
-const PAPER = '#FAF8F3';
-const LINE = '#E4DFD3';
-const ACCENT = '#B9822E';
+// Palet mengikuti brand RESPONKU KRS: biru utama, latar terang, teks gelap
+const INK = '#111827';
+const PAPER = '#F7F8FC';
+const LINE = '#E4E7EF';
+const ACCENT = '#2F5FE0';
+const ACCENT_DARK = '#1E46C2';
 const MUTED = '#6B7280';
 
 export default function ScheduleChatbot({ context }: { context: unknown }) {
@@ -215,8 +216,8 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
           bottom: `${position.y}px`,
           zIndex: 50,
           touchAction: 'none',
-          backgroundColor: INK,
-          color: PAPER,
+          backgroundColor: ACCENT,
+          color: '#FFFFFF',
         }}
         className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow cursor-grab active:cursor-grabbing select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         aria-label="Geser atau buka asisten jadwal"
@@ -238,23 +239,14 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
           {/* Garis aksen tipis di atas — satu-satunya aksen warna yang mencolok */}
           <div style={{ backgroundColor: ACCENT }} className="h-[3px] w-full flex-shrink-0" />
 
-          <div style={{ borderColor: LINE }} className="px-4 py-3 border-b flex items-start justify-between flex-shrink-0">
-            <div className="flex flex-col gap-0.5">
-              <span
-                style={{ color: ACCENT }}
-                className="font-mono text-[10px] tracking-[0.15em] uppercase flex items-center gap-1.5"
-              >
-                <span style={{ backgroundColor: ACCENT }} className="w-1.5 h-1.5 rounded-full inline-block" />
-                Asisten KRS
-              </span>
-              <p style={{ color: INK }} className="text-sm font-semibold">
-                Jadwal &amp; rencana studi
-              </p>
-            </div>
+          <div style={{ borderColor: LINE }} className="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
+            <p style={{ color: INK }} className="text-sm font-semibold">
+              Jadwal &amp; rencana studi
+            </p>
             <button
               onClick={() => setIsOpen(false)}
               style={{ color: INK }}
-              className="opacity-50 hover:opacity-100 cursor-pointer mt-0.5"
+              className="opacity-50 hover:opacity-100 cursor-pointer"
               aria-label="Tutup asisten"
             >
               <X className="w-4 h-4" />
@@ -267,7 +259,7 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
                 <div
                   style={
                     m.role === 'user'
-                      ? { backgroundColor: INK, color: PAPER }
+                      ? { backgroundColor: ACCENT, color: '#FFFFFF' }
                       : { backgroundColor: '#FFFFFF', color: INK, borderColor: LINE }
                   }
                   className={`max-w-[88%] px-3.5 py-2.5 rounded-lg text-sm leading-relaxed ${
@@ -330,12 +322,12 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
             <button
               onClick={sendMessage}
               disabled={isSending || !input.trim()}
-              style={{ backgroundColor: INK, color: PAPER }}
+              style={{ backgroundColor: ACCENT, color: '#FFFFFF' }}
               className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer transition-colors"
               onMouseEnter={(e) => {
-                if (!isSending && input.trim()) e.currentTarget.style.backgroundColor = ACCENT;
+                if (!isSending && input.trim()) e.currentTarget.style.backgroundColor = ACCENT_DARK;
               }}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = INK)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = ACCENT)}
               aria-label="Kirim pesan"
             >
               <Send className="w-4 h-4" />
