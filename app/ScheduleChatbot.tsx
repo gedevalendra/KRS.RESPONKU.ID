@@ -31,7 +31,7 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
   const [errorNotice, setErrorNotice] = useState('');
 
   // Posisi awal tombol (bottom-right: x = jarak dari kanan, y = jarak dari bawah)
-  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [position, setPosition] = useState({ x: 20, y: 60 });
   const positionRef = useRef(position);
   useEffect(() => {
     positionRef.current = position;
