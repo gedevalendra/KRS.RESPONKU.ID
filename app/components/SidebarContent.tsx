@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Star, X, Users, Home, Link2, ListChecks, PenSquare, CalendarCheck, Settings, Coins } from 'lucide-react';
+import { Star, X, Users, Home, Link2, ListChecks, PenSquare, CalendarCheck, Settings, Coins, SlidersHorizontal } from 'lucide-react';
 import type { KrsPlannerValue } from '../context/KrsPlannerContext';
 
 interface SidebarContentProps {
@@ -19,12 +19,8 @@ const NAV_ITEMS = [
   { href: '/jadwal', label: 'Jadwal Saya', icon: CalendarCheck },
   { href: '/pengaturan', label: 'Pengaturan', icon: Settings },
   { href: '/dukungan', label: 'Dukungan', icon: Coins },
-
 ];
 
-// Sidebar sekarang dua fungsi: (1) menu navigasi ke tiap halaman, dan
-// (2) widget ringkas (SKS, dosen favorit, pengunjung) yang tetap relevan
-// di halaman manapun — jadi tidak perlu diulang di tiap page.
 export default function SidebarContent({ krs, onNavigate }: SidebarContentProps) {
   const pathname = usePathname();
   const {
@@ -32,6 +28,8 @@ export default function SidebarContent({ krs, onNavigate }: SidebarContentProps)
     isOverLimit,
     sksPct,
     selectedCourseCodes,
+    maxSks,
+    setMaxSks,
     goldlistTags,
     goldlistInput,
     setGoldlistInput,
@@ -99,14 +97,33 @@ export default function SidebarContent({ krs, onNavigate }: SidebarContentProps)
       </nav>
 
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Ringkasan SKS</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 flex items-center gap-1">
+            <SlidersHorizontal className="w-3 h-3 text-blue-600" /> Ringkasan SKS
+          </p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 font-medium">Batas SKS:</span>
+            <input
+              type="number"
+              min={1}
+              max={36}
+              value={maxSks}
+              onChange={(e) => setMaxSks(parseInt(e.target.value, 10) || 24)}
+              className="w-12 border border-slate-200 bg-white rounded px-1.5 py-0.5 text-xs font-mono text-center text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
+              title="Ubah batas maksimal SKS"
+            />
+          </div>
+        </div>
+
         <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${isOverLimit ? 'bg-rose-500' : 'bg-blue-600'}`}
             style={{ width: `${sksPct}%` }}
           />
         </div>
-        <p className="font-mono text-sm mt-2 text-slate-700">{totalSelectedSks} / 24 SKS</p>
+        <p className="font-mono text-sm mt-2 text-slate-700">
+          {totalSelectedSks} / {maxSks} SKS
+        </p>
         <p className="text-xs text-slate-400 mt-0.5">{selectedCourseCodes.length} mata kuliah dipilih</p>
       </div>
 

@@ -51,6 +51,9 @@ import {
 import { diffCourses, validateChosenSchedule } from '../lib/schedule-diff';
 import { generateSchedules, generateSchedulesWithDayOff } from '../lib/schedule-generator';
 
+// Key localStorage untuk batas SKS kustom
+const STORAGE_MAX_SKS_KEY = 'papan-jadwal:max-sks';
+
 function useSkipMountEffect(effect: () => void, deps: unknown[]) {
   const isFirstRender = useRef(true);
   useEffect(() => {
@@ -92,6 +95,13 @@ export function useKrsPlanner() {
   const [updateBadge, setUpdateBadge] = useState<UpdateBadge>('none');
   const [changeReport, setChangeReport] = useState<ChangeReport | null>(null);
   const [droppedSelection, setDroppedSelection] = useState<string[]>([]);
+
+  // --- Batas Maksimal SKS Kustom ------------------------------------------
+  const [maxSks, setMaxSks] = useState<number>(() => {
+    if (typeof window === 'undefined') return MAX_SKS;
+    const saved = localStorage.getItem(STORAGE_MAX_SKS_KEY);
+    return saved ? parseInt(saved, 10) || MAX_SKS : MAX_SKS;
+  });
 
   // --- Pilihan mata kuliah & dosen favorit --------------------------------
   const [selectedCourseCodes, setSelectedCourseCodes] = useState<string[]>(() => {
@@ -143,6 +153,7 @@ export function useKrsPlanner() {
     const savedEmail = loadJSON<EmailReminderSettings>(STORAGE_EMAIL_KEY);
     const savedScheduleState = loadJSON<ScheduleState>(STORAGE_SCHEDULE_STATE_KEY);
     const savedTab = localStorage.getItem(STORAGE_SHEET_TAB_KEY) || '';
+    const savedMaxSks = localStorage.getItem(STORAGE_MAX_SKS_KEY);
 
     if (savedCourses.length > 0) setCourses(savedCourses);
     if (savedSelected.length > 0) setSelectedCourseCodes(savedSelected);
@@ -151,6 +162,7 @@ export function useKrsPlanner() {
     if (savedDayOff) setDayOffSettings(savedDayOff);
     if (savedCustomPicks) setCustomPicks(savedCustomPicks);
     if (savedTab) setActiveTabName(savedTab);
+    if (savedMaxSks) setMaxSks(parseInt(savedMaxSks, 10) || MAX_SKS);
     if (savedRealtime) {
       setRealtimeSettings({ ...savedRealtime, intervalMs: Math.max(savedRealtime.intervalMs, MIN_REALTIME_INTERVAL_MS) });
     }
@@ -160,10 +172,9 @@ export function useKrsPlanner() {
       setActiveOption(savedScheduleState.activeOption || 0);
     }
 
-if (savedUrl) {
+    if (savedUrl) {
       setSheetUrl(savedUrl);
       setIsLinkLocked(true);
-      // Sertakan savedTab agar daftar tab & isi data sheet terbaca sesuai pilihan terakhir
       fetchSheetFromUrl(savedUrl, savedTab || undefined, savedCourses, savedSelected, savedChosen);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,6 +205,12 @@ if (savedUrl) {
   }, [emailReminder]);
 
   useSkipMountEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_MAX_SKS_KEY, maxSks.toString());
+    }
+  }, [maxSks]);
+
+  useSkipMountEffect(() => {
     if (activeTabName) {
       localStorage.setItem(STORAGE_SHEET_TAB_KEY, activeTabName);
     }
@@ -207,17 +224,12 @@ if (savedUrl) {
     }
   }, [scheduleOptions, activeOption]);
 
-  // Kalau opsi yang lagi aktif kebuang (misal karena jadi basi setelah sinkron
-  // ulang), pindahkan tampilan ke opsi pertama yang masih ada.
   useEffect(() => {
     if (activeOption !== 0 && activeOption >= scheduleOptions.length) {
       setActiveOption(0);
     }
   }, [scheduleOptions, activeOption]);
 
-  // -------------------------------------------------------------------------
-  // Sinkronisasi spreadsheet (mendukung pilihan tab)
-  // -------------------------------------------------------------------------
   const fetchSheetFromUrl = async (
     urlOverride?: string,
     tabOverride?: string,
@@ -247,10 +259,6 @@ if (savedUrl) {
       const arrayBuffer = await response.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
 
-      // Tab yang di-hide/dinonaktifkan di Google Sheets tetap ikut terbawa saat
-      // export XLSX, tapi ditandai lewat wb.Workbook.Sheets[i].Hidden (1/2).
-      // Tab seperti ini kita sembunyikan dari pilihan supaya user tidak bisa
-      // memilih tab yang memang sengaja dinonaktifkan pemilik spreadsheet.
       const hiddenTabNames = new Set(
         ((wb.Workbook?.Sheets || []) as { name?: string; Hidden?: number }[])
           .filter((s) => !!s.Hidden && s.Hidden > 0)
@@ -303,10 +311,6 @@ if (savedUrl) {
         setChosenValidation(null);
       }
 
-      // Hasil "opsi jadwal" yang sudah digenerate sebelumnya bisa jadi basi
-      // kalau sinkron ulang mengubah/menghapus mata kuliah yang dipakai di
-      // opsi tersebut. Buang opsi yang salah satu mata kuliahnya sudah tidak
-      // ada lagi di data terbaru, supaya hasil lama tidak nyangkut di layar.
       const validKeySet = new Set(cleanedData.map((c) => courseKey(c)));
       setScheduleOptions((prevOptions) => {
         if (prevOptions.length === 0) return prevOptions;
@@ -387,8 +391,6 @@ if (savedUrl) {
   const checkForUpdatesRef = useRef(checkForUpdatesNow);
   checkForUpdatesRef.current = checkForUpdatesNow;
 
-
-
   useEffect(() => {
     if (!realtimeSettings.enabled || !isLinkLocked || !sheetUrl) return undefined;
     const id = setInterval(() => {
@@ -409,8 +411,7 @@ if (savedUrl) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realtimeSettings.enabled, realtimeSettings.intervalMs, isLinkLocked, sheetUrl]);
-  
-  
+
   const uniqueCourseList = useMemo(() => {
     const map = new Map<string, { name: string; sks: number; lecturers: Set<string> }>();
     courses.forEach((c) => {
@@ -460,8 +461,8 @@ if (savedUrl) {
     if (selectedCourseCodes.includes(code)) {
       setSelectedCourseCodes(selectedCourseCodes.filter((c) => c !== code));
     } else {
-      if (totalSelectedSks + courseObj.sks > MAX_SKS) {
-        alert(`Batas maksimal SKS adalah ${MAX_SKS}! Menambahkan mata kuliah ini akan membuat total SKS menjadi ${totalSelectedSks + courseObj.sks}.`);
+      if (totalSelectedSks + courseObj.sks > maxSks) {
+        alert(`Batas maksimal SKS adalah ${maxSks}! Menambahkan mata kuliah ini akan membuat total SKS menjadi ${totalSelectedSks + courseObj.sks}.`);
         return;
       }
       setSelectedCourseCodes([...selectedCourseCodes, code]);
@@ -604,8 +605,9 @@ if (savedUrl) {
       : scheduleOptions.length > 0
       ? 3
       : 1;
-  const sksPct = Math.min(100, Math.round((totalSelectedSks / MAX_SKS) * 100));
-  const isOverLimit = totalSelectedSks > MAX_SKS;
+
+  const sksPct = Math.min(100, Math.round((totalSelectedSks / maxSks) * 100));
+  const isOverLimit = totalSelectedSks > maxSks;
 
   const chatContext = useMemo(
     () => ({
@@ -669,6 +671,10 @@ if (savedUrl) {
     lecturerSuggestions,
     addLecturerTag,
     removeLecturerTag,
+
+    // kustomisasi batas SKS
+    maxSks,
+    setMaxSks,
 
     // penyusunan jadwal
     generateBestSchedule,
