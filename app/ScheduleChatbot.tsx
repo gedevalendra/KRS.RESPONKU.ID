@@ -21,11 +21,17 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
-  
-  // Posisi awal tombol (bottom-right: x: 20, y: 20)
+
+  // Posisi awal tombol (bottom-right: x = jarak dari kanan, y = jarak dari bawah)
   const [position, setPosition] = useState({ x: 20, y: 20 });
+  const positionRef = useRef(position);
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
   const isDragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const dragStartClient = useRef({ x: 0, y: 0 });
   const hasMoved = useRef(false);
 
   const chatbotRef = useRef<HTMLDivElement>(null);
@@ -45,13 +51,16 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
     };
   }, [isOpen]);
 
-  // Logika Dragging yang lebih sensitif & responsif
+  // --- Logika Dragging (diperbaiki: konsisten dengan posisi right/bottom) ---
   const handleStart = (clientX: number, clientY: number) => {
     isDragging.current = true;
     hasMoved.current = false;
+    dragStartClient.current = { x: clientX, y: clientY };
+
+    // Simpan offset antara cursor dan titik acuan kanan-bawah tombol
     dragOffset.current = {
-      x: clientX - position.x,
-      y: clientY - position.y,
+      x: clientX - (window.innerWidth - positionRef.current.x),
+      y: clientY - (window.innerHeight - positionRef.current.y),
     };
   };
 
@@ -66,19 +75,20 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
     }
   };
 
+  // Listener global dipasang sekali saja (bukan setiap posisi berubah)
   useEffect(() => {
     const handleMove = (clientX: number, clientY: number) => {
       if (!isDragging.current) return;
-      const dx = clientX - (position.x + dragOffset.current.x);
-      const dy = clientY - (position.y + dragOffset.current.y);
-      
-      // Berikan threshold kecil agar tidak sengaja bergeser saat cuma tap biasa
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+
+      if (
+        Math.abs(clientX - dragStartClient.current.x) > 3 ||
+        Math.abs(clientY - dragStartClient.current.y) > 3
+      ) {
         hasMoved.current = true;
       }
 
-      const newX = clientX - dragOffset.current.x;
-      const newY = clientY - dragOffset.current.y;
+      const newX = window.innerWidth - clientX + dragOffset.current.x;
+      const newY = window.innerHeight - clientY + dragOffset.current.y;
 
       const boundedX = Math.max(10, Math.min(window.innerWidth - 65, newX));
       const boundedY = Math.max(10, Math.min(window.innerHeight - 65, newY));
@@ -86,16 +96,10 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
       setPosition({ x: boundedX, y: boundedY });
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      handleMove(e.clientX, e.clientY);
-    };
-
+    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX, e.clientY);
     const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        handleMove(e.touches[0].clientX, e.touches[0].clientY);
-      }
+      if (e.touches.length > 0) handleMove(e.touches[0].clientX, e.touches[0].clientY);
     };
-
     const handleEnd = () => {
       isDragging.current = false;
     };
@@ -111,12 +115,38 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleEnd);
     };
-  }, [position]);
+  }, []);
 
   const handleClickButton = () => {
     if (!hasMoved.current) {
       setIsOpen((v) => !v);
     }
+  };
+
+  // --- Efek mengetik (diperbaiki: durasi total tetap, tidak bergantung panjang teks) ---
+  const startTypingEffect = (fullText: string) => {
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+    const totalDurationMs = 500; // total waktu reveal, berapa pun panjang teksnya
+    const tickMs = 20;
+    const totalTicks = Math.max(1, Math.round(totalDurationMs / tickMs));
+    const chunkSize = Math.max(1, Math.ceil(fullText.length / totalTicks));
+
+    let index = 0;
+    const interval = setInterval(() => {
+      index += chunkSize;
+      const currentText = fullText.slice(0, index);
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'assistant', content: currentText };
+        return updated;
+      });
+
+      if (index >= fullText.length) {
+        clearInterval(interval);
+        setIsSending(false);
+      }
+    }, tickMs);
   };
 
   const sendMessage = async () => {
@@ -138,28 +168,9 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Duh, lagi ada kendala nih pas ngobrol sama asistennya.');
-      
-      const fullReply = data.reply || 'Maaf ya, aku kurang nangkap maksudnya. Coba ulangi pertanyaannya ya!';
-      
-      let currentText = '';
-      setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-      
-      let index = 0;
-      const interval = setInterval(() => {
-        if (index < fullReply.length) {
-          currentText += fullReply[index];
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', content: currentText };
-            return updated;
-          });
-          index++;
-        } else {
-          clearInterval(interval);
-          setIsSending(false);
-        }
-      }, 15);
 
+      const fullReply = data.reply || 'Maaf ya, aku kurang nangkap maksudnya. Coba ulangi pertanyaannya ya!';
+      startTypingEffect(fullReply);
     } catch (err: any) {
       setErrorNotice(err?.message || 'Terjadi kendala saat menghubungi asisten.');
       setIsSending(false);
