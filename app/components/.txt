@@ -1,0 +1,22 @@
+✨ *JADWAL KULIAH SAYA* ✨
+│
+├── *Senin*/
+│   └──> *Kapita Selekta* - Kelas RB - 09:20 s.d 12:00 - -
+│
+├── *Selasa*/
+│   └──> *Inteligensi Buatan* - Kelas RD - 13:00 s.d 15:40 - -
+│   └──> *Pengembangan Aplikasi Mobile* - Kelas RA - 09:20 s.d 12:00 - -
+│
+├── *Rabu*/
+│   └──> *Jaringan Komputer* - Kelas RH - 13:55 s.d 15:40 - -
+│
+├── *Kamis*/
+│   └──> *Pengembangan Aplikasi Web* - Kelas RB - 13:00 s.d 15:40 - -
+│   └──> *Metodologi Penelitian* - Kelas RA - 09:20 s.d 12:00 - -
+│
+└── *Jumat*/
+    └──> *Sistem Informasi* - Kelas RB - 07:30 s.d 09:15 - -
+    └──> *Manajemen Proyek Teknologi Informasi* - Kelas RA - 09:20 s.d 12:00 - -
+
+---------------------------------------------------------------------
+📌 *Total* : 8 mata kuliah · 22 SKS
