@@ -387,15 +387,30 @@ if (savedUrl) {
   const checkForUpdatesRef = useRef(checkForUpdatesNow);
   checkForUpdatesRef.current = checkForUpdatesNow;
 
+
+
   useEffect(() => {
     if (!realtimeSettings.enabled || !isLinkLocked || !sheetUrl) return undefined;
     const id = setInterval(() => {
       checkForUpdatesRef.current();
     }, realtimeSettings.intervalMs);
-    return () => clearInterval(id);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForUpdatesRef.current();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [realtimeSettings.enabled, realtimeSettings.intervalMs, isLinkLocked, sheetUrl]);
-
+  
+  
   const uniqueCourseList = useMemo(() => {
     const map = new Map<string, { name: string; sks: number; lecturers: Set<string> }>();
     courses.forEach((c) => {

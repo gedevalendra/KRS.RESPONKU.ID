@@ -22,4 +22,4 @@ export const DAY_ORDER = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 
 // normal; batas minimum sengaja dibuat rendah (5 detik) supaya bisa dipakai
 // untuk keperluan testing sesuai permintaan.
 export const DEFAULT_REALTIME_INTERVAL_MS = 10 * 60 * 1000; // 10 menit
-export const MIN_REALTIME_INTERVAL_MS = 5 * 1000; // 5 detik (mode testing)
+export const MIN_REALTIME_INTERVAL_MS = 1 * 1000; // 5 detik (mode testing)

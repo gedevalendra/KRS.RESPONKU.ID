@@ -30,51 +30,128 @@ export default function BerandaPage() {
   const krs = useKrs();
   const firstName = krs.session?.user?.name ? krs.session.user.name.split(' ')[0] : null;
 
-  // State untuk waktu realtime & progress perkuliahan
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Timer realtime tiap detik
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Format hari ini dalam bahasa Indonesia
   const daysMap = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const currentDayName = daysMap[currentTime.getDay()];
-  const currentHourMins = currentTime.getHours() * 60 + currentTime.getMinutes();
+  
+  // Hitung total detik saat ini dalam sehari untuk presisi per detik
+  const currentTotalSeconds = 
+    currentTime.getHours() * 3600 + 
+    currentTime.getMinutes() * 60 + 
+    currentTime.getSeconds();
 
-  // Helper untuk mengubah "HH:MM" ke total menit
-  const timeToMins = (timeStr: string) => {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
+  // Helper konversi waktu (string atau desimal Excel seperti 0.625) ke format string "HH:MM"
+  const formatTimeDisplay = (timeInput: any): string => {
+    if (timeInput === null || timeInput === undefined) return '-';
+    
+    let totalMins = 0;
+    if (typeof timeInput === 'number') {
+      totalMins = Math.round(timeInput * 24 * 60);
+    } else {
+      const timeStr = String(timeInput).trim();
+      if (!timeStr) return '-';
+      if (!isNaN(Number(timeStr)) && timeStr.includes('.')) {
+        const num = parseFloat(timeStr);
+        if (num > 0 && num < 1) {
+          totalMins = Math.round(num * 24 * 60);
+        }
+      } else {
+        const cleanStr = timeStr.replace('.', ':');
+        const parts = cleanStr.split(':');
+        if (parts.length >= 2) {
+          const h = parseInt(parts[0], 10) || 0;
+          const m = parseInt(parts[1], 10) || 0;
+          totalMins = h * 60 + m;
+        } else {
+          return timeStr;
+        }
+      }
+    }
+
+    const hours = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+    return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
   };
 
-  // Cari kelas yang sedang aktif hari ini dari jadwal tersimpan/resolved
+  // Helper konversi waktu ke total detik dalam sehari
+  const timeToSeconds = (timeInput: any) => {
+    if (timeInput === null || timeInput === undefined) return 0;
+    if (typeof timeInput === 'number') {
+      return Math.round(timeInput * 24 * 3600);
+    }
+    const timeStr = String(timeInput).trim();
+    if (!timeStr) return 0;
+    if (!isNaN(Number(timeStr)) && timeStr.includes('.')) {
+      const num = parseFloat(timeStr);
+      if (num > 0 && num < 1) {
+        return Math.round(num * 24 * 3600);
+      }
+    }
+    const cleanStr = timeStr.replace('.', ':');
+    const parts = cleanStr.split(':');
+    if (parts.length < 2) return 0;
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    const s = parts[2] ? parseInt(parts[2], 10) || 0 : 0;
+    return h * 3600 + m * 60 + s;
+  };
+
+  // Filter kelas hari ini berdasarkan jadwal aktif dengan perhitungan detik
   const activeClassesToday = (krs.chosenScheduleResolved || []).filter((item: any) => {
-    return item.hari?.toLowerCase() === currentDayName.toLowerCase();
+    const itemDay = (item['Hari'] || item.hari || '').trim().toLowerCase();
+    return itemDay === currentDayName.toLowerCase();
   }).map((item: any) => {
-    const startMins = timeToMins(item.jamMulai || item.jam_mulai);
-    const endMins = timeToMins(item.jamSelesai || item.jam_selesai);
+    const rawStart = 
+      item['Jam Mulai'] || 
+      item['Jam Mulai (Ex : 07:00)'] || 
+      item.jamMulai || 
+      item.jam_mulai || 
+      item.jam || 
+      '';
+
+    const rawEnd = 
+      item['Jam Berakhir'] || 
+      item['Jam Berakhir (Ex: 10:00)'] || 
+      item['Jam Selesai'] || 
+      item.jamSelesai || 
+      item.jam_selesai || 
+      '';
+    
+    const startSeconds = timeToSeconds(rawStart);
+    const endSeconds = timeToSeconds(rawEnd);
     
     let progress = 0;
     let isOngoing = false;
 
-    if (currentHourMins >= startMins && currentHourMins <= endMins) {
+    if (currentTotalSeconds >= startSeconds && currentTotalSeconds <= endSeconds) {
       isOngoing = true;
-      const totalDuration = endMins - startMins;
-      const elapsed = currentHourMins - startMins;
+      const totalDuration = endSeconds - startSeconds;
+      const elapsed = currentTotalSeconds - startSeconds;
       progress = totalDuration > 0 ? Math.min(Math.max((elapsed / totalDuration) * 100, 0), 100) : 0;
-    } else if (currentHourMins > endMins) {
+    } else if (currentTotalSeconds > endSeconds) {
       progress = 100;
     }
 
     return {
       ...item,
-      startMins,
-      endMins,
+      namaMatkul: item['Nama Mata Kuliah'] || item.namaMatkul || item.matkul || 'Mata Kuliah',
+      dosen: item['Dosen'] || item.dosen || '-',
+      ruangan: item['Ruangan'] || item['Ruangan \n(Diisi Fakultas)'] || item.ruangan || '-',
+      startSeconds,
+      endSeconds,
       isOngoing,
       progress,
+      formattedStart: formatTimeDisplay(rawStart),
+      formattedEnd: formatTimeDisplay(rawEnd),
     };
   });
 
@@ -95,7 +172,7 @@ export default function BerandaPage() {
           </div>
           <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl text-sm border border-white/20 flex items-center gap-2 self-start sm:self-auto">
             <Calendar className="w-4 h-4 text-blue-200" />
-            <span>{currentDayName}, {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{currentDayName}, {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
         </div>
 
@@ -136,7 +213,7 @@ export default function BerandaPage() {
 
       {/* Widget Progres Perkuliahan Realtime Hari Ini */}
       {krs.chosenScheduleResolved && krs.chosenScheduleResolved.length > 0 && (
-        <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -156,21 +233,24 @@ export default function BerandaPage() {
                   <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wider bg-indigo-100 px-2 py-0.5 rounded">
                     Sedang Berlangsung
                   </span>
-                  <h3 className="font-bold text-slate-900 text-base mt-1">{ongoingClass.namaMatkul || ongoingClass.matkul}</h3>
-                  <p className="text-xs text-slate-600">Ruangan: {ongoingClass.ruangan || '-'} • Dosen: {ongoingClass.dosen || '-'}</p>
+                  <h3 className="font-bold text-slate-900 text-base mt-1">{ongoingClass.namaMatkul}</h3>
+                  <p className="text-xs text-slate-600">Ruangan: {ongoingClass.ruangan} • Dosen: {ongoingClass.dosen}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-sm font-bold text-indigo-700">
-                    {ongoingClass.jamMulai || ongoingClass.jam_mulai} - {ongoingClass.jamSelesai || ongoingClass.jam_selesai}
+                    {ongoingClass.formattedStart} - {ongoingClass.formattedEnd}
                   </span>
-                  <p className="text-xs font-medium text-indigo-600">{Math.round(ongoingClass.progress)}% Selesai</p>
+                  {/* Menampilkan persentase desimal presisi tinggi */}
+                  <p className="text-xs font-medium text-indigo-600">
+                    {ongoingClass.progress >= 100 ? '100' : ongoingClass.progress.toFixed(1)}% Selesai
+                  </p>
                 </div>
               </div>
 
-              {/* Progress Bar Realtime */}
+              {/* Progress Bar Realtime Bergerak Halus Tiap Detik */}
               <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                 <div 
-                  className="bg-indigo-600 h-full transition-all duration-1000 rounded-full"
+                  className="bg-indigo-600 h-full transition-all duration-300 rounded-full"
                   style={{ width: `${ongoingClass.progress}%` }}
                 />
               </div>
@@ -186,11 +266,11 @@ export default function BerandaPage() {
             {activeClassesToday.map((cls: any, idx: number) => (
               <div key={idx} className="border border-slate-100 bg-slate-50/50 rounded-xl p-3 flex items-center justify-between text-sm">
                 <div>
-                  <p className="font-semibold text-slate-800 line-clamp-1">{cls.namaMatkul || cls.matkul}</p>
-                  <p className="text-xs text-slate-500">{cls.jamMulai || cls.jam_mulai} - {cls.jamSelesai || cls.jam_selesai}</p>
+                  <p className="font-semibold text-slate-800 line-clamp-1">{cls.namaMatkul}</p>
+                  <p className="text-xs text-slate-500">{cls.formattedStart} - {cls.formattedEnd}</p>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-md font-medium ${cls.isOngoing ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'}`}>
-                  {cls.isOngoing ? 'Aktif' : (currentHourMins > cls.endMins ? 'Selesai' : 'Akan Datang')}
+                  {cls.isOngoing ? 'Aktif' : (currentTotalSeconds > cls.endSeconds ? 'Selesai' : 'Akan Datang')}
                 </span>
               </div>
             ))}
@@ -198,7 +278,7 @@ export default function BerandaPage() {
         </section>
       )}
 
-      {/* Tampilan Panel Jadwal Terpilih Menggunakan ChosenSchedulePanel */}
+      {/* Tampilan Panel Jadwal Terpilih */}
       {krs.chosenSchedule && (
         <ChosenSchedulePanel
           chosenSchedule={krs.chosenSchedule}
@@ -207,7 +287,6 @@ export default function BerandaPage() {
           onClear={krs.handleClearChosenSchedule}
         />
       )}
-
     </div>
   );
 }

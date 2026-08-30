@@ -51,25 +51,35 @@ export default function ChosenSchedulePanel({
       </p>
 
       <div className="space-y-2">
-        {chosenScheduleResolved.map((item: any, idx) => (
-          <div
-            key={idx}
-            className={`border rounded-lg p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 ${
-              item.__missing ? 'border-rose-300 border-dashed bg-rose-50' : 'border-slate-200'
-            }`}
-          >
-            <div>
-              <span className="font-semibold">{item['Nama Mata Kuliah']}</span>{' '}
-              <span className="text-slate-500 text-xs">({item['Kode Mata Kuliah']} · Kelas {item['Kelas'] || '-'})</span>
-              {item.__missing && <span className="ml-2 text-xs font-medium text-rose-600">— sudah tidak tersedia</span>}
+        {chosenScheduleResolved.map((item: any, idx) => {
+          // Normalisasi field agar aman dibaca dari berbagai variasi key spreadsheet
+          const namaMatkul = item['Nama Mata Kuliah'] || item.namaMatkul || item.matkul || 'Mata Kuliah';
+          const kodeMatkul = item['Kode Mata Kuliah'] || item.kodeMatkul || '-';
+          const kelas = item['Kelas'] || item.kelas || '-';
+          const hari = item['Hari'] || item.hari || '-';
+          const jamMulai = item['Jam Mulai (Ex : 07:00)'] || item.jamMulai || item.jam_mulai || '-';
+          const jamSelesai = item['Jam Berakhir (Ex: 10:00)'] || item.jamSelesai || item.jam_selesai || '-';
+
+          return (
+            <div
+              key={idx}
+              className={`border rounded-lg p-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 ${
+                item.__missing ? 'border-rose-300 border-dashed bg-rose-50' : 'border-slate-200'
+              }`}
+            >
+              <div>
+                <span className="font-semibold">{namaMatkul}</span>{' '}
+                <span className="text-slate-500 text-xs">({kodeMatkul} · Kelas {kelas})</span>
+                {item.__missing && <span className="ml-2 text-xs font-medium text-rose-600">— sudah tidak tersedia</span>}
+              </div>
+              {!item.__missing && (
+                <span className="text-xs text-blue-700 font-mono">
+                  {hari} · {jamMulai}–{jamSelesai}
+                </span>
+              )}
             </div>
-            {!item.__missing && (
-              <span className="text-xs text-blue-700 font-mono">
-                {item['Hari']} · {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
-              </span>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
