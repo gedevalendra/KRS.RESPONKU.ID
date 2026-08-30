@@ -1,33 +1,33 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, X, Send, Loader2, Bot, ImagePlus } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  image?: string; // base64 data URL, kalau user melampirkan gambar
 }
 
-const MAX_IMAGE_SIZE_MB = 5;
+// Palet "kartu KRS": kertas, tinta, aksen stempel mustard — bukan hitam/putih default
+const INK = '#1C2434';
+const PAPER = '#FAF8F3';
+const LINE = '#E4DFD3';
+const ACCENT = '#B9822E';
+const MUTED = '#6B7280';
 
 export default function ScheduleChatbot({ context }: { context: unknown }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: 'Halo! Santai aja, aku siap bantu kamu ngecek jadwal kuliah, cari tahu kalau ada jam yang bentrok, atau bantu susun KRS biar makin gampang. Kamu juga bisa kirim foto jadwal/KRS-mu kalau mau aku bacain. Ada yang mau ditanyain?',
+      content: 'Halo! Santai aja, aku siap bantu kamu ngecek jadwal kuliah, cari tahu kalau ada jam yang bentrok, atau bantu susun KRS biar makin gampang. Ada yang mau ditanyain?',
     },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
-
-  // Lampiran gambar yang belum dikirim
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Posisi awal tombol (bottom-right: x = jarak dari kanan, y = jarak dari bawah)
   const [position, setPosition] = useState({ x: 20, y: 20 });
@@ -154,51 +154,14 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
     }, tickMs);
   };
 
-  // --- Lampiran gambar ---
-  const handleImageButtonClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // biar file yang sama bisa dipilih lagi nanti
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setErrorNotice('Yang bisa dilampirkan cuma file gambar ya (jpg, png, dll).');
-      return;
-    }
-    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-      setErrorNotice(`Ukuran gambar maksimal ${MAX_IMAGE_SIZE_MB}MB ya.`);
-      return;
-    }
-
-    setErrorNotice('');
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPendingImage(reader.result as string);
-    };
-    reader.onerror = () => {
-      setErrorNotice('Gagal membaca gambar, coba lagi ya.');
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removePendingImage = () => setPendingImage(null);
-
   const sendMessage = async () => {
     const text = input.trim();
-    if ((!text && !pendingImage) || isSending) return;
+    if (!text || isSending) return;
 
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: text,
-      ...(pendingImage ? { image: pendingImage } : {}),
-    };
+    const userMessage: ChatMessage = { role: 'user', content: text };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
     setInput('');
-    setPendingImage(null);
     setIsSending(true);
     setErrorNotice('');
 
@@ -252,8 +215,10 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
           bottom: `${position.y}px`,
           zIndex: 50,
           touchAction: 'none',
+          backgroundColor: INK,
+          color: PAPER,
         }}
-        className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center shadow-2xl hover:scale-105 transition-transform cursor-grab active:cursor-grabbing group select-none"
+        className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow cursor-grab active:cursor-grabbing select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         aria-label="Geser atau buka asisten jadwal"
         title="Tahan dan geser untuk memindahkan tombol"
       >
@@ -262,19 +227,36 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
 
       {/* Jendela Chat:
           Mobile  -> bottom sheet: nempel di bawah, lebar penuh, tinggi ~setengah layar, slide-up
-          Desktop -> mengambang kanan-bawah seperti sebelumnya */}
+          Desktop -> mengambang kanan-bawah */}
       {isOpen && (
         <div
-          className="fixed z-50 bg-white border border-black/15 shadow-2xl flex flex-col overflow-hidden animate-in fade-in duration-200
-          inset-x-0 bottom-0 w-full h-[55vh] max-h-[80vh] rounded-t-2xl slide-in-from-bottom-8
-          sm:inset-auto sm:right-5 sm:bottom-20 sm:w-[24rem] sm:max-w-[92vw] sm:h-[32rem] sm:max-h-[80vh] sm:rounded-xl sm:zoom-in-95 sm:slide-in-from-bottom-0"
+          style={{ backgroundColor: PAPER, borderColor: LINE }}
+          className="fixed z-50 border shadow-2xl flex flex-col overflow-hidden animate-in fade-in duration-150
+          inset-x-0 bottom-0 w-full h-[55vh] max-h-[80vh] rounded-t-2xl slide-in-from-bottom-6
+          sm:inset-auto sm:right-5 sm:bottom-20 sm:w-[24rem] sm:max-w-[92vw] sm:h-[32rem] sm:max-h-[80vh] sm:rounded-xl sm:slide-in-from-bottom-0"
         >
-          <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between bg-black text-white flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4" />
-              <p className="text-sm font-semibold">Asisten KRS Kamu</p>
+          {/* Garis aksen tipis di atas — satu-satunya aksen warna yang mencolok */}
+          <div style={{ backgroundColor: ACCENT }} className="h-[3px] w-full flex-shrink-0" />
+
+          <div style={{ borderColor: LINE }} className="px-4 py-3 border-b flex items-start justify-between flex-shrink-0">
+            <div className="flex flex-col gap-0.5">
+              <span
+                style={{ color: ACCENT }}
+                className="font-mono text-[10px] tracking-[0.15em] uppercase flex items-center gap-1.5"
+              >
+                <span style={{ backgroundColor: ACCENT }} className="w-1.5 h-1.5 rounded-full inline-block" />
+                Asisten KRS
+              </span>
+              <p style={{ color: INK }} className="text-sm font-semibold">
+                Jadwal &amp; rencana studi
+              </p>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-white/80 hover:text-white cursor-pointer">
+            <button
+              onClick={() => setIsOpen(false)}
+              style={{ color: INK }}
+              className="opacity-50 hover:opacity-100 cursor-pointer mt-0.5"
+              aria-label="Tutup asisten"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -283,25 +265,19 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[90%] px-3.5 py-2.5 rounded-lg text-sm leading-relaxed ${
+                  style={
                     m.role === 'user'
-                      ? 'bg-black text-white'
-                      : 'bg-neutral-100 text-black border border-black/10'
+                      ? { backgroundColor: INK, color: PAPER }
+                      : { backgroundColor: '#FFFFFF', color: INK, borderColor: LINE }
+                  }
+                  className={`max-w-[88%] px-3.5 py-2.5 rounded-lg text-sm leading-relaxed ${
+                    m.role === 'assistant' ? 'border' : ''
                   }`}
                 >
                   {m.role === 'user' ? (
-                    <div>
-                      {m.image && (
-                        <img
-                          src={m.image}
-                          alt="Lampiran gambar"
-                          className="rounded-md mb-1.5 max-h-40 w-auto object-cover"
-                        />
-                      )}
-                      {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
-                    </div>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
                   ) : (
-                    <div className="prose prose-sm max-w-none text-black [&_div.table-wrapper]:overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_table]:my-2 [&_th]:border [&_th]:border-black/20 [&_th]:p-1.5 [&_th]:bg-black/5 [&_td]:border [&_td]:border-black/20 [&_td]:p-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h3]:font-bold [&_h3]:text-sm [&_h3]:mt-2">
+                    <div className="prose prose-sm max-w-none [&_div.table-wrapper]:overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_table]:my-2 [&_th]:border [&_th]:border-black/15 [&_th]:p-1.5 [&_th]:bg-black/5 [&_td]:border [&_td]:border-black/15 [&_td]:p-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h3]:font-bold [&_h3]:text-sm [&_h3]:mt-2">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
@@ -321,63 +297,45 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
             ))}
             {isSending && messages[messages.length - 1]?.role === 'user' && (
               <div className="flex justify-start">
-                <div className="bg-neutral-100 border border-black/10 px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-neutral-500">
+                <div
+                  style={{ color: MUTED, borderColor: LINE, backgroundColor: '#FFFFFF' }}
+                  className="border px-3 py-2 rounded-lg flex items-center gap-2 text-sm"
+                >
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Lagi ngetik jawaban buat kamu...
                 </div>
               </div>
             )}
             {errorNotice && (
-              <p className="text-xs text-black/60 border border-dashed border-black/20 rounded-md px-2.5 py-2">
+              <p
+                style={{ color: MUTED, borderColor: LINE }}
+                className="text-xs border border-dashed rounded-md px-2.5 py-2"
+              >
                 {errorNotice}
               </p>
             )}
           </div>
 
-          {/* Preview gambar yang mau dikirim */}
-          {pendingImage && (
-            <div className="px-2.5 pt-2 flex-shrink-0 bg-white">
-              <div className="relative inline-block">
-                <img src={pendingImage} alt="Preview lampiran" className="h-16 w-16 object-cover rounded-md border border-black/15" />
-                <button
-                  onClick={removePendingImage}
-                  className="absolute -top-1.5 -right-1.5 bg-black text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] cursor-pointer"
-                  aria-label="Hapus gambar"
-                >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="border-t border-black/10 p-2.5 flex gap-2 flex-shrink-0 bg-white">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageSelect}
-              className="hidden"
-            />
-            <button
-              onClick={handleImageButtonClick}
-              disabled={isSending}
-              className="border border-black/15 text-black w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer hover:bg-black/5"
-              aria-label="Lampirkan gambar"
-              title="Kirim gambar (mis. foto jadwal/KRS)"
-            >
-              <ImagePlus className="w-4 h-4" />
-            </button>
+          <div style={{ borderColor: LINE }} className="border-t p-2.5 flex gap-2 flex-shrink-0">
             <input
               value={input}
               data-gramm="false"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Tanya soal jadwal, KRS, atau kirim gambar..."
-              className="flex-1 min-w-0 border border-black/15 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+              placeholder="Tanya soal jadwal atau KRS-mu di sini..."
+              style={{ borderColor: LINE, color: INK }}
+              className="flex-1 min-w-0 border rounded-md px-3 py-2 text-sm outline-none focus:ring-2"
+              onFocus={(e) => (e.currentTarget.style.boxShadow = `0 0 0 2px ${ACCENT}55`)}
+              onBlur={(e) => (e.currentTarget.style.boxShadow = 'none')}
             />
             <button
               onClick={sendMessage}
-              disabled={isSending || (!input.trim() && !pendingImage)}
-              className="bg-black text-white w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer"
+              disabled={isSending || !input.trim()}
+              style={{ backgroundColor: INK, color: PAPER }}
+              className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer transition-colors"
+              onMouseEnter={(e) => {
+                if (!isSending && input.trim()) e.currentTarget.style.backgroundColor = ACCENT;
+              }}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = INK)}
               aria-label="Kirim pesan"
             >
               <Send className="w-4 h-4" />
