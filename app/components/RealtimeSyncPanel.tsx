@@ -42,12 +42,10 @@ export default function RealtimeSyncPanel({
   const settings = realtimeSettings || { enabled: false, intervalMs: 10 * 60 * 1000 };
   const reminder = emailReminder || { enabled: false, email: '' };
 
-  // Cek apakah interval saat ini cocok dengan preset standar atau masuk kategori custom
   const matchedPreset = PRESET_INTERVALS.find((p) => p.ms === settings.intervalMs);
   const [isCustom, setIsCustom] = useState(!matchedPreset);
   const [customSeconds, setCustomSeconds] = useState(Math.round((settings.intervalMs || 60000) / 1000));
 
-  // Sinkronisasi status kustom jika interval diubah dari luar/storage
   useEffect(() => {
     const isMatched = PRESET_INTERVALS.some((p) => p.ms === settings.intervalMs);
     setIsCustom(!isMatched);
@@ -62,12 +60,12 @@ export default function RealtimeSyncPanel({
   if (!isLinkLocked) return null;
 
   return (
-    <section className="bg-white border border-black/10 rounded-xl p-5 sm:p-6">
+    <section className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
       <div className="flex items-center gap-2 mb-1">
-        <RadioTower className="w-4 h-4" />
-        <h2 className="font-bold text-base">Pengecekan Realtime &amp; Pengingat Email</h2>
+        <RadioTower className="w-4 h-4 text-blue-600" />
+        <h2 className="font-bold text-base text-slate-900">Pengecekan Realtime &amp; Pengingat Email</h2>
       </div>
-      <p className="text-sm text-black/50 mb-4">
+      <p className="text-sm text-slate-500 mb-4">
         Opsional — cek otomatis kalau ada perubahan di spreadsheet tanpa perlu klik &quot;Cek Pembaruan&quot; manual.
       </p>
 
@@ -76,16 +74,16 @@ export default function RealtimeSyncPanel({
           type="checkbox"
           checked={settings.enabled}
           onChange={(e) => onToggleRealtime(e.target.checked)}
-          className="w-4 h-4 accent-black cursor-pointer"
+          className="w-4 h-4 accent-blue-600 cursor-pointer"
         />
-        <span className="text-sm font-medium">Aktifkan pengecekan berkala</span>
-        {isCheckingRealtime && <Loader2 className="w-3.5 h-3.5 animate-spin text-black/40" />}
+        <span className="text-sm font-medium text-slate-800">Aktifkan pengecekan berkala</span>
+        {isCheckingRealtime && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />}
       </label>
 
       {settings.enabled && (
         <div className="pl-6 space-y-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-1.5 block">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5 block">
               Interval pengecekan
             </label>
             <div className="flex flex-wrap gap-2">
@@ -105,7 +103,7 @@ export default function RealtimeSyncPanel({
                       }
                     }}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition cursor-pointer ${
-                      active ? 'bg-black text-white border-black' : 'border-black/15 hover:bg-black/5'
+                      active ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-600 hover:bg-blue-50'
                     }`}
                   >
                     {p.label}
@@ -125,31 +123,31 @@ export default function RealtimeSyncPanel({
                     setCustomSeconds(val);
                     onChangeIntervalMs(val * 1000);
                   }}
-                  className="w-24 border border-black/15 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                  className="w-24 border border-slate-200 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <span className="text-xs text-black/50">
+                <span className="text-xs text-slate-500">
                   detik (minimum {Math.round(MIN_REALTIME_INTERVAL_MS / 1000)} detik — nilai kecil hanya untuk keperluan testing)
                 </span>
               </div>
             )}
 
             {lastCheckedAt && (
-              <p className="text-xs text-black/40 mt-2">
+              <p className="text-xs text-slate-400 mt-2">
                 Terakhir dicek: {new Date(lastCheckedAt).toLocaleString('id-ID')}
               </p>
             )}
           </div>
 
-          <div className="border-t border-black/10 pt-3.5">
+          <div className="border-t border-slate-200 pt-3.5">
             <label className="flex items-center gap-2.5 cursor-pointer mb-2">
               <input
                 type="checkbox"
                 checked={reminder.enabled}
                 onChange={(e) => onToggleEmailReminder(e.target.checked)}
-                className="w-4 h-4 accent-black cursor-pointer"
+                className="w-4 h-4 accent-blue-600 cursor-pointer"
               />
-              <span className="text-sm font-medium flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5" /> Ingatkan lewat email kalau ada perubahan
+              <span className="text-sm font-medium flex items-center gap-1.5 text-slate-800">
+                <Mail className="w-3.5 h-3.5 text-blue-600" /> Ingatkan lewat email kalau ada perubahan
               </span>
             </label>
 
@@ -160,14 +158,14 @@ export default function RealtimeSyncPanel({
                   placeholder="nama@email.com"
                   value={reminder.email}
                   onChange={(e) => onChangeEmail(e.target.value)}
-                  className={`w-full sm:w-72 border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black focus:border-transparent ${
-                    emailTouched && !emailValid ? 'border-black' : 'border-black/15'
+                  className={`w-full sm:w-72 border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    emailTouched && !emailValid ? 'border-rose-300' : 'border-slate-200'
                   }`}
                 />
                 {emailTouched && !emailValid && (
-                  <p className="text-xs mt-1">Format email belum valid.</p>
+                  <p className="text-xs mt-1 text-rose-600">Format email belum valid.</p>
                 )}
-                <p className="text-xs text-black/50 mt-1.5">
+                <p className="text-xs text-slate-500 mt-1.5">
                   Email akan dikirim tiap kali pengecekan menemukan perubahan pada spreadsheet.
                 </p>
               </div>

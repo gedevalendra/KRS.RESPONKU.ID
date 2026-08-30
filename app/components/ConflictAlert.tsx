@@ -6,7 +6,6 @@ interface ConflictAlertProps {
   message: string;
 }
 
-// Status hasil penyusunan jadwal (sukses / peringatan bentrok)
 export default function ConflictAlert({ message }: ConflictAlertProps) {
   if (!message) return null;
   const isWarning = message.startsWith('Peringatan');
@@ -14,7 +13,7 @@ export default function ConflictAlert({ message }: ConflictAlertProps) {
   return (
     <div
       className={`p-4 rounded-xl flex items-start gap-3 text-sm font-medium border ${
-        isWarning ? 'border-dashed border-black/40 bg-black/[0.02]' : 'border-black/15 bg-black/[0.03]'
+        isWarning ? 'border-dashed border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'
       }`}
     >
       {isWarning ? (

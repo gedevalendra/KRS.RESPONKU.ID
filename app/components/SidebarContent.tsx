@@ -1,51 +1,47 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Star, X, Users } from 'lucide-react';
+import { Star, X, Users, Home, Link2, ListChecks, PenSquare, CalendarCheck, Settings } from 'lucide-react';
+import type { KrsPlannerValue } from '../context/KrsPlannerContext';
 
 interface SidebarContentProps {
-  step: number;
-  totalSelectedSks: number;
-  isOverLimit: boolean;
-  sksPct: number;
-  selectedCount: number;
-  goldlistTags: string[];
-  goldlistInput: string;
-  setGoldlistInput: (v: string) => void;
-  lecturerSuggestions: string[];
-  addLecturerTag: (v: string) => void;
-  removeLecturerTag: (v: string) => void;
+  krs: KrsPlannerValue;
+  onNavigate?: () => void;
 }
 
-const STEPS = [
-  { n: 1, label: 'Hubungkan spreadsheet' },
-  { n: 2, label: 'Pilih mata kuliah' },
-  { n: 3, label: 'Lihat jadwal' },
+const NAV_ITEMS = [
+  { href: '/', label: 'Beranda', icon: Home },
+  { href: '/sync', label: 'Sinkronisasi', icon: Link2 },
+  { href: '/pilih', label: 'Pilih Mata Kuliah', icon: ListChecks },
+  { href: '/manual', label: 'Susun Manual', icon: PenSquare },
+  { href: '/jadwal', label: 'Jadwal Saya', icon: CalendarCheck },
+  { href: '/pengaturan', label: 'Pengaturan', icon: Settings },
 ];
 
-export default function SidebarContent({
-  step,
-  totalSelectedSks,
-  isOverLimit,
-  sksPct,
-  selectedCount,
-  goldlistTags,
-  goldlistInput,
-  setGoldlistInput,
-  lecturerSuggestions,
-  addLecturerTag,
-  removeLecturerTag,
-}: SidebarContentProps) {
+// Sidebar sekarang dua fungsi: (1) menu navigasi ke tiap halaman, dan
+// (2) widget ringkas (SKS, dosen favorit, pengunjung) yang tetap relevan
+// di halaman manapun — jadi tidak perlu diulang di tiap page.
+export default function SidebarContent({ krs, onNavigate }: SidebarContentProps) {
+  const pathname = usePathname();
+  const {
+    totalSelectedSks,
+    isOverLimit,
+    sksPct,
+    selectedCourseCodes,
+    goldlistTags,
+    goldlistInput,
+    setGoldlistInput,
+    lecturerSuggestions,
+    addLecturerTag,
+    removeLecturerTag,
+  } = krs;
+
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const [visitorCount, setVisitorCount] = useState<number | null>(null);
   const [visitorError, setVisitorError] = useState<boolean>(false);
 
-  // Widget "Online Sekarang" (realtime, per IP unik) & "Total Pengunjung"
-  // (akumulasi). Keduanya dilayani oleh /api/presence (lihat app/api/presence/route.ts):
-  // - Panggilan pertama saat halaman dimuat menaikkan Total Pengunjung +1.
-  // - Setelahnya, kirim heartbeat tiap ~25 detik supaya IP ini tetap
-  //   dianggap "online"; kalau heartbeat berhenti (tab ditutup dll),
-  //   server otomatis menganggapnya offline setelah 60 detik.
   useEffect(() => {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -76,45 +72,51 @@ export default function SidebarContent({
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-3">Progres</p>
-        <ol className="space-y-3">
-          {STEPS.map((s) => (
-            <li key={s.n} className="flex items-center gap-2.5 text-sm">
-              <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-mono flex-shrink-0 ${
-                  step >= s.n ? 'bg-black text-white' : 'bg-black/5 text-black/50 border border-black/15'
-                }`}
-              >
-                {s.n}
-              </span>
-              <span className={step >= s.n ? 'text-black font-medium' : 'text-black/50'}>{s.label}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <nav>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Menu</p>
+        <ul className="space-y-1">
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(`${item.href}/`));
+            const Icon = item.icon;
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                    isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-700'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-3">Ringkasan SKS</p>
-        <div className="h-2 rounded-full bg-black/10 overflow-hidden">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Ringkasan SKS</p>
+        <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all ${isOverLimit ? 'bg-black' : 'bg-black/70'}`}
+            className={`h-full rounded-full transition-all ${isOverLimit ? 'bg-rose-500' : 'bg-blue-600'}`}
             style={{ width: `${sksPct}%` }}
           />
         </div>
-        <p className="font-mono text-sm mt-2">{totalSelectedSks} / {24} SKS</p>
-        <p className="text-xs text-black/50 mt-0.5">{selectedCount} mata kuliah dipilih</p>
+        <p className="font-mono text-sm mt-2 text-slate-700">{totalSelectedSks} / 24 SKS</p>
+        <p className="text-xs text-slate-400 mt-0.5">{selectedCourseCodes.length} mata kuliah dipilih</p>
       </div>
 
       <div>
-        <label className="text-xs font-semibold uppercase tracking-wide text-black/50 mb-2 flex items-center gap-1.5">
-          <Star className="w-3.5 h-3.5" /> Dosen favorit
+        <label className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+          <Star className="w-3.5 h-3.5 text-blue-600" /> Dosen favorit
         </label>
 
         {goldlistTags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {goldlistTags.map((tag) => (
-              <span key={tag} className="inline-flex items-center gap-1 bg-black text-white text-xs px-2.5 py-1 rounded-full">
+              <span key={tag} className="inline-flex items-center gap-1 bg-blue-600 text-white text-xs px-2.5 py-1 rounded-full">
                 {tag}
                 <button onClick={() => removeLecturerTag(tag)} className="hover:opacity-70 cursor-pointer" aria-label={`Hapus ${tag}`}>
                   <X className="w-3 h-3" />
@@ -136,15 +138,15 @@ export default function SidebarContent({
                 addLecturerTag(goldlistInput);
               }
             }}
-            className="w-full border border-black/15 bg-white rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+            className="w-full border border-slate-200 bg-white rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           {goldlistInput && lecturerSuggestions.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full bg-white border border-black/15 rounded-md shadow-lg overflow-hidden">
+            <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg overflow-hidden">
               {lecturerSuggestions.map((name) => (
                 <button
                   key={name}
                   onClick={() => addLecturerTag(name)}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 cursor-pointer"
                 >
                   {name}
                 </button>
@@ -152,30 +154,29 @@ export default function SidebarContent({
             </div>
           )}
         </div>
-        <p className="text-xs text-black/50 mt-2">
+        <p className="text-xs text-slate-400 mt-2">
           Ketik lalu tekan Enter untuk menambah manual, atau pilih dari daftar dosen yang ada di spreadsheet. Kosongkan bila ingin melihat beberapa opsi jadwal sekaligus.
         </p>
       </div>
 
-      {/* Widget Pengunjung: Online Sekarang (realtime, per IP) & Total Akumulasi */}
-      <div className="pt-4 border-t border-black/10 space-y-2">
-        <div className="flex items-center justify-between text-xs text-black/60 bg-black/[0.02] border border-black/10 rounded-lg px-3 py-2.5">
+      <div className="pt-4 border-t border-slate-200 space-y-2">
+        <div className="flex items-center justify-between text-xs text-slate-600 bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-2.5">
           <span className="flex items-center gap-1.5 font-medium">
             <span className="relative flex w-2 h-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75" />
-              <span className="relative inline-flex rounded-full w-2 h-2 bg-green-500" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex rounded-full w-2 h-2 bg-emerald-500" />
             </span>
             Online Sekarang
           </span>
-          <span className="font-mono font-bold text-black">
+          <span className="font-mono font-bold text-blue-700">
             {onlineCount !== null ? onlineCount.toLocaleString('id-ID') : visitorError ? '-' : '...'}
           </span>
         </div>
-        <div className="flex items-center justify-between text-xs text-black/60 bg-black/[0.02] border border-black/10 rounded-lg px-3 py-2.5">
+        <div className="flex items-center justify-between text-xs text-slate-600 bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-2.5">
           <span className="flex items-center gap-1.5 font-medium">
-            <Users className="w-4 h-4 text-black" /> Total Pengunjung
+            <Users className="w-4 h-4 text-blue-600" /> Total Pengunjung
           </span>
-          <span className="font-mono font-bold text-black">
+          <span className="font-mono font-bold text-blue-700">
             {visitorCount !== null ? visitorCount.toLocaleString('id-ID') : visitorError ? '-' : '...'}
           </span>
         </div>

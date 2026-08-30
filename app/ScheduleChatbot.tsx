@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MessageCircle, X, Send, Loader2, Bot } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -57,66 +55,57 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
     <>
       <button
         onClick={() => setIsOpen((v) => !v)}
-        className="fixed bottom-5 right-5 z-50 w-12 h-12 rounded-full bg-black text-white flex items-center justify-center shadow-lg hover:opacity-90 transition cursor-pointer"
+        className="fixed bottom-20 lg:bottom-5 right-5 z-50 w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:bg-blue-700 transition cursor-pointer"
         aria-label={isOpen ? 'Tutup asisten jadwal' : 'Buka asisten jadwal'}
       >
         {isOpen ? <X className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
       </button>
 
       {isOpen && (
-        <div className="fixed bottom-20 right-5 z-50 w-[24rem] max-w-[92vw] h-[32rem] max-h-[80vh] bg-white border border-black/15 rounded-xl shadow-2xl flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-black/10 flex items-center gap-2 bg-black text-white flex-shrink-0">
+        <div className="fixed bottom-36 lg:bottom-20 right-5 z-50 w-[22rem] max-w-[92vw] h-[28rem] max-h-[70vh] bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2 bg-blue-600 text-white flex-shrink-0">
             <Bot className="w-4 h-4" />
-            <p className="text-sm font-semibold">Asisten Responku KRS</p>
+            <p className="text-sm font-semibold">Asisten RESPONKU KRS</p>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[90%] px-3.5 py-2.5 rounded-lg text-sm leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-black text-white'
-                      : 'bg-neutral-100 text-black border border-black/10'
+                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap leading-relaxed ${
+                    m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-800 border border-slate-200'
                   }`}
                 >
-                  {m.role === 'user' ? (
-                    <p className="whitespace-pre-wrap">{m.content}</p>
-                  ) : (
-                    <div className="prose prose-sm max-w-none text-black [&_table]:w-full [&_table]:border-collapse [&_table]:my-2 [&_th]:border [&_th]:border-black/20 [&_th]:p-1.5 [&_th]:bg-black/5 [&_td]:border [&_td]:border-black/20 [&_td]:p-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_strong]:font-semibold [&_h3]:font-bold [&_h3]:text-sm [&_h3]:mt-2">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                    </div>
-                  )}
+                  {m.content}
                 </div>
               </div>
             ))}
             {isSending && (
               <div className="flex justify-start">
-                <div className="bg-neutral-100 border border-black/10 px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-neutral-500">
+                <div className="bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-slate-400">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Mengetik...
                 </div>
               </div>
             )}
             {errorNotice && (
-              <p className="text-xs text-black/60 border border-dashed border-black/20 rounded-md px-2.5 py-2">
+              <p className="text-xs text-rose-600 border border-dashed border-rose-200 bg-rose-50 rounded-md px-2.5 py-2">
                 {errorNotice}
               </p>
             )}
           </div>
 
-          <div className="border-t border-black/10 p-2.5 flex gap-2 flex-shrink-0">
+          <div className="border-t border-slate-200 p-2.5 flex gap-2 flex-shrink-0">
             <input
               value={input}
-            data-gramm="false"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
               placeholder="Tanya soal jadwalmu..."
-              className="flex-1 border border-black/15 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black"
+              className="flex-1 border border-slate-200 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               onClick={sendMessage}
               disabled={isSending || !input.trim()}
-              className="bg-black text-white w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer"
+              className="bg-blue-600 text-white w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 disabled:opacity-40 cursor-pointer hover:bg-blue-700"
               aria-label="Kirim pesan"
             >
               <Send className="w-4 h-4" />
