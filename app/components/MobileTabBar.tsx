@@ -10,6 +10,7 @@ const TABS = [
   { href: '/pilih', label: 'Pilih', icon: ListChecks },
   { href: '/jadwal', label: 'Jadwal', icon: CalendarCheck },
   { href: '/pengaturan', label: 'Setelan', icon: Settings },
+  
 ];
 
 // Navigasi cepat khusus mobile — menggantikan kebiasaan scroll panjang.

@@ -11,7 +11,8 @@ import {
   ArrowRight, 
   CheckCircle2, 
   Clock, 
-  Calendar 
+  Calendar,
+  Coins,
 } from 'lucide-react';
 import { useKrs } from '../context/KrsPlannerContext';
 import ChosenSchedulePanel from '../components/ChosenSchedulePanel';
@@ -22,6 +23,7 @@ const CARDS = [
   { href: '/manual', title: 'Susun Manual', desc: 'Pilih sendiri kelas untuk tiap mata kuliah.', icon: PenSquare },
   { href: '/jadwal', title: 'Jadwal Saya', desc: 'Lihat, bandingkan, dan simpan hasil jadwal.', icon: CalendarCheck },
   { href: '/pengaturan', title: 'Pengaturan', desc: 'Atur pengecekan realtime & pengingat email.', icon: Settings },
+  { href: '/dukungan', title: 'Dukungan', desc: 'Bantu kami untuk terus lebih baik', icon: Coins },
 ];
 
 export default function BerandaPage() {
@@ -110,7 +112,7 @@ export default function BerandaPage() {
       </section>
 
       {/* Menu Cards */}
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="hidden lg:grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {CARDS.map((card) => {
           const Icon = card.icon;
           return (

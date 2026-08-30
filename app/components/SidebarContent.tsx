@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Star, X, Users, Home, Link2, ListChecks, PenSquare, CalendarCheck, Settings } from 'lucide-react';
+import { Star, X, Users, Home, Link2, ListChecks, PenSquare, CalendarCheck, Settings, Coins } from 'lucide-react';
 import type { KrsPlannerValue } from '../context/KrsPlannerContext';
 
 interface SidebarContentProps {
@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { href: '/manual', label: 'Susun Manual', icon: PenSquare },
   { href: '/jadwal', label: 'Jadwal Saya', icon: CalendarCheck },
   { href: '/pengaturan', label: 'Pengaturan', icon: Settings },
+  { href: '/dukungan', label: 'Dukungan', icon: Coins },
+
 ];
 
 // Sidebar sekarang dua fungsi: (1) menu navigasi ke tiap halaman, dan
