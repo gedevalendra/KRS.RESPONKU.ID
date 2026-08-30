@@ -23,8 +23,8 @@ export default function Navbar({ session, onOpenSidebar }: NavbarProps) {
           </button>
           <Link href="/" className="flex items-center gap-2.5">
             <div className="leading-tight">
-              {/* <p className="font-bold text-[15px] sm:text-lg tracking-tight text-slate-900">RESPONKU KRS</p> */}
-              {/* <p className="hidden sm:block text-[11px] text-slate-400 -mt-0.5">Susun KRS tanpa bentrok</p> */}
+              <p className="font-bold text-[15px] sm:text-lg tracking-tight text-slate-900">RESPONKU KRS</p>
+              <p className="hidden sm:block text-[11px] text-slate-400 -mt-0.5">Susun KRS tanpa bentrok</p>
             </div>
           </Link>
         </div>

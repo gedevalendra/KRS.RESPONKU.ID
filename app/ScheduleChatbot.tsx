@@ -22,6 +22,12 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
   const [isSending, setIsSending] = useState(false);
   const [errorNotice, setErrorNotice] = useState('');
   
+  // Posisi awal tombol (bottom-right: x: 20, y: 20)
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const isDragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const hasMoved = useRef(false);
+
   const chatbotRef = useRef<HTMLDivElement>(null);
 
   // Tutup otomatis jika user klik di luar area chatbot
@@ -38,6 +44,80 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen]);
+
+  // Logika Dragging yang lebih sensitif & responsif
+  const handleStart = (clientX: number, clientY: number) => {
+    isDragging.current = true;
+    hasMoved.current = false;
+    dragOffset.current = {
+      x: clientX - position.x,
+      y: clientY - position.y,
+    };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    handleStart(e.clientX, e.clientY);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length > 0) {
+      handleStart(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
+  useEffect(() => {
+    const handleMove = (clientX: number, clientY: number) => {
+      if (!isDragging.current) return;
+      const dx = clientX - (position.x + dragOffset.current.x);
+      const dy = clientY - (position.y + dragOffset.current.y);
+      
+      // Berikan threshold kecil agar tidak sengaja bergeser saat cuma tap biasa
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        hasMoved.current = true;
+      }
+
+      const newX = clientX - dragOffset.current.x;
+      const newY = clientY - dragOffset.current.y;
+
+      const boundedX = Math.max(10, Math.min(window.innerWidth - 65, newX));
+      const boundedY = Math.max(10, Math.min(window.innerHeight - 65, newY));
+
+      setPosition({ x: boundedX, y: boundedY });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      handleMove(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        handleMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const handleEnd = () => {
+      isDragging.current = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [position]);
+
+  const handleClickButton = () => {
+    if (!hasMoved.current) {
+      setIsOpen((v) => !v);
+    }
+  };
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -61,7 +141,6 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
       
       const fullReply = data.reply || 'Maaf ya, aku kurang nangkap maksudnya. Coba ulangi pertanyaannya ya!';
       
-      // Simulasi animasi mengetik (Typewriter effect bertahap)
       let currentText = '';
       setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
       
@@ -79,7 +158,7 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
           clearInterval(interval);
           setIsSending(false);
         }
-      }, 15); // Kecepatan ketikan teks
+      }, 15);
 
     } catch (err: any) {
       setErrorNotice(err?.message || 'Terjadi kendala saat menghubungi asisten.');
@@ -89,16 +168,34 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
 
   return (
     <div ref={chatbotRef}>
-      <button
-        onClick={() => setIsOpen((v) => !v)}
-        className="fixed bottom-5 right-5 z-50 w-12 h-12 rounded-full bg-black text-white flex items-center justify-center shadow-lg hover:opacity-90 transition cursor-pointer"
-        aria-label={isOpen ? 'Tutup asisten jadwal' : 'Buka asisten jadwal'}
+      {/* Tombol Buletan Chatbot yang bisa digeser */}
+      <div
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onClick={handleClickButton}
+        style={{
+          position: 'fixed',
+          right: `${position.x}px`,
+          bottom: `${position.y}px`,
+          zIndex: 50,
+          touchAction: 'none',
+        }}
+        className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center shadow-2xl hover:scale-105 transition-transform cursor-grab active:cursor-grabbing group select-none"
+        aria-label="Geser atau buka asisten jadwal"
+        title="Tahan dan geser untuk memindahkan tombol"
       >
         {isOpen ? <X className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
-      </button>
+      </div>
 
+      {/* Jendela Chat: Desktop di kanan bawah, Mobile di Center Justify (Tengah Layar) */}
       {isOpen && (
-        <div className="fixed bottom-20 right-4 sm:right-5 z-50 w-[24rem] max-w-[92vw] h-[32rem] max-h-[80vh] bg-white border border-black/15 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+        <div 
+          className="fixed z-50 w-[24rem] max-w-[92vw] h-[32rem] max-h-[80vh] bg-white border border-black/15 rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 
+          /* Posisi Mobile: Center layar */
+          inset-x-4 top-1/2 -translate-y-1/2 mx-auto 
+          /* Posisi Desktop (sm ke atas): Mengikuti posisi buletan di kanan bawah */
+          sm:inset-auto sm:right-5 sm:bottom-20 sm:translate-y-0 sm:mx-0"
+        >
           <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between bg-black text-white flex-shrink-0">
             <div className="flex items-center gap-2">
               <Bot className="w-4 h-4" />
@@ -126,7 +223,6 @@ export default function ScheduleChatbot({ context }: { context: unknown }) {
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          // Membungkus setiap tabel otomatis dengan container scroll horizontal
                           table: ({ node, ...props }) => (
                             <div className="overflow-x-auto my-2 w-full max-w-full">
                               <table {...props} />
