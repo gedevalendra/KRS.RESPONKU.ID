@@ -19,6 +19,14 @@ import ScheduleChatbot from './ScheduleChatbot';
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="id">
+      <head>
+        <title>KRS Automation - Responku KRS</title>
+        <meta 
+          name="description" 
+          content="Responku KRS adalah platform KRS Automation terbaik untuk membantu mahasiswa menyusun jadwal kuliah, sinkronisasi Google Sheets, cek bentrok jam, dan perencanaan Kartu Rencana Studi secara otomatis dan mudah." 
+        />
+        <meta name="keywords" content="responku krs, krs automation, susun jadwal kuliah, planner krs mahasiswa, cek bentrok krs" />
+      </head>
       <body>
         <SessionProvider>
           <KrsPlannerProvider>
