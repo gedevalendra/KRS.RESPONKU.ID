@@ -170,10 +170,7 @@ export default function BerandaPage() {
                 : 'Mulai dengan menyambungkan spreadsheet jadwal kuliahmu di menu Sinkronisasi.'}
             </p>
           </div>
-          <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl text-sm border border-white/20 flex items-center gap-2 self-start sm:self-auto">
-            <Calendar className="w-4 h-4 text-blue-200" />
-            <span>{currentDayName}, {currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-          </div>
+         
         </div>
 
         {krs.chosenSchedule && (
