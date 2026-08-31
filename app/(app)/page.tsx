@@ -158,7 +158,7 @@ export default function BerandaPage() {
   const ongoingClass = activeClassesToday.find((c: any) => c.isOngoing);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
       {/* Banner Sapaan */}
       <section className="bg-blue-600 text-white rounded-2xl p-6 sm:p-8 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -171,7 +171,7 @@ export default function BerandaPage() {
             </p>
           </div>
          {krs.chosenSchedule && (
-  <div className="mt-4 pt-4 border-t border-blue-500/50">
+  <div className="pt-4 border-t border-blue-500/50">
     <span className="inline-flex w-max md:w-auto items-center text-sm bg-white/20 rounded-full px-3 py-1 font-medium">
       Jadwal Tersimpan Aktif
     </span>
