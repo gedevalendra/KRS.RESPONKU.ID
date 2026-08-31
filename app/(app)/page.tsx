@@ -170,19 +170,14 @@ export default function BerandaPage() {
                 : 'Mulai dengan menyambungkan spreadsheet jadwal kuliahmu di menu Sinkronisasi.'}
             </p>
           </div>
-         
+         {krs.chosenSchedule && (
+  <div className="mt-4 pt-4 border-t border-blue-500/50">
+    <span className="inline-flex w-max md:w-auto items-center text-sm bg-white/20 rounded-full px-3 py-1 font-medium">
+      Jadwal Tersimpan Aktif
+    </span>
+  </div>
+)}
         </div>
-
-        {krs.chosenSchedule && (
-          <div className="mt-4 pt-4 border-t border-blue-500/50 flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 text-sm bg-white/20 rounded-full px-3 py-1 font-medium">
-              <CheckCircle2 className="w-4 h-4 text-emerald-300" /> Jadwal Tersimpan Aktif
-            </span>
-            <span className="text-xs text-blue-100">
-              Total SKS: {krs.chosenSchedule.totalSks || krs.totalSelectedSks} SKS
-            </span>
-          </div>
-        )}
       </section>
 
       {/* Menu Cards */}
