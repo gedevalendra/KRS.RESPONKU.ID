@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { createClient } from '@supabase/supabase-js';
 import { 
   Link2, 
   ListChecks, 
@@ -9,13 +10,16 @@ import {
   CalendarCheck, 
   Settings, 
   ArrowRight, 
-  CheckCircle2, 
   Clock, 
-  Calendar,
   Coins,
 } from 'lucide-react';
 import { useKrs } from '../context/KrsPlannerContext';
 import ChosenSchedulePanel from '../components/ChosenSchedulePanel';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 const CARDS = [
   { href: '/sync', title: 'Sinkronisasi', desc: 'Hubungkan & perbarui data dari Google Sheets.', icon: Link2 },
@@ -28,8 +32,32 @@ const CARDS = [
 
 export default function BerandaPage() {
   const krs = useKrs();
-  const firstName = krs.session?.user?.name ? krs.session.user.name.split(' ')[0] : null;
+  const [userName, setUserName] = useState<string | null>(null);
 
+  // Ambil data user & username dari Supabase Auth / tabel users_profile
+  useEffect(() => {
+    async function fetchUser() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Cek username dari tabel users_profile
+        const { data: profile } = await supabase
+          .from('users_profile')
+          .select('username')
+          .eq('id', user.id)
+          .single();
+
+        if (profile?.username) {
+          setUserName(profile.username);
+        } else {
+          setUserName(user.email?.split('@')[0] || 'Pengguna');
+        }
+      }
+    }
+    fetchUser();
+  }, []);
+
+  const firstName = userName ? userName.split(' ')[0] : null;
+  // ... (lanjutan kode timer, helper, dan return JSX Anda di bawah tetap sama)
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Timer realtime tiap detik
@@ -161,9 +189,9 @@ export default function BerandaPage() {
     <div className="space-y-2">
       {/* Banner Sapaan */}
       <section className="bg-blue-600 text-white rounded-2xl p-6 sm:p-8 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold">Halo{firstName ? `, ${firstName}` : ''} 👋</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Halo{firstName ? `, ${firstName}` : ' Pengunjung'} 👋</h1>
             <p className="text-blue-100 mt-1 text-sm sm:text-base">
               {krs.isLinkLocked
                 ? `Spreadsheet tersambung · ${krs.courses.length} baris jadwal · ${krs.totalSelectedSks}/24 SKS dipilih.`
@@ -171,12 +199,12 @@ export default function BerandaPage() {
             </p>
           </div>
          {krs.chosenSchedule && (
-  <div className="pt-4 border-t border-blue-500/50">
-    <span className="inline-flex w-max md:w-auto items-center text-sm bg-white/20 rounded-full px-3 py-1 font-medium">
-      Jadwal Tersimpan Aktif
-    </span>
-  </div>
-)}
+            <div className="w-full pt-4 border-t border-blue-500/50 text-center">
+              <span className="inline-flex w-full text-center md:w-auto items-center text-sm bg-white/20 rounded-full px-3 py-1 font-medium">
+                Jadwal Tersimpan Aktif
+              </span>
+            </div>
+          )}
         </div>
       </section>
 

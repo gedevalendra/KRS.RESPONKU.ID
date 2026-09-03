@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
+
 import * as XLSX from 'xlsx';
 import {
   Course,
@@ -50,7 +51,12 @@ import {
 } from '../lib/schedule-utils';
 import { diffCourses, validateChosenSchedule } from '../lib/schedule-diff';
 import { generateSchedules, generateSchedulesWithDayOff } from '../lib/schedule-generator';
+import { createClient } from '@supabase/supabase-js';
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 // Key localStorage untuk batas SKS kustom
 const STORAGE_MAX_SKS_KEY = 'papan-jadwal:max-sks';
 
@@ -69,7 +75,8 @@ function useSkipMountEffect(effect: () => void, deps: unknown[]) {
 export function useKrsPlanner() {
   const { data: session } = useSession();
   const [isMounted, setIsMounted] = useState(false);
-
+  
+  
   // --- Sinkronisasi spreadsheet & tab aktif --------------------------------
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -172,13 +179,21 @@ export function useKrsPlanner() {
       setActiveOption(savedScheduleState.activeOption || 0);
     }
 
+    
+
     if (savedUrl) {
+
+      
       setSheetUrl(savedUrl);
       setIsLinkLocked(true);
       fetchSheetFromUrl(savedUrl, savedTab || undefined, savedCourses, savedSelected, savedChosen);
+      
     }
+    
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  
 
   useSkipMountEffect(() => {
     saveJSON(STORAGE_SELECTED_KEY, selectedCourseCodes);
@@ -291,6 +306,8 @@ export function useKrsPlanner() {
         setUpdateBadge('first');
         setChangeReport(null);
       } else if (!diff.hasChanges) {
+        
+        
         setUpdateBadge('same');
         setChangeReport(null);
       } else {
@@ -298,6 +315,44 @@ export function useKrsPlanner() {
         setChangeReport(diff);
         notifyScheduleChangeByEmail(diff);
       }
+
+      // Tambahkan state riwayat histori di dalam hook useKrsPlanner
+const [historyList, setHistoryList] = useState<any[]>([]);
+
+// Fungsi untuk mengambil riwayat dari Supabase
+const fetchChangeHistory = async () => {
+  const { data, error } = await supabase
+    .from('schedule_change_history')
+    .select('*')
+    .order('detected_at', { ascending: false });
+  
+  if (!error && data) {
+    setHistoryList(data);
+  }
+};
+
+// Panggil fetchChangeHistory di dalam useEffect saat pertama kali dimuat
+useEffect(() => {
+  fetchChangeHistory();
+}, []);
+
+// Di dalam fungsi fetchSheetFromUrl, saat perubahan terdeteksi:
+if (diff.hasChanges) {
+  setUpdateBadge('changed');
+  setChangeReport(diff);
+  notifyScheduleChangeByEmail(diff);
+
+  // Simpan riwayat perubahan ke Supabase tabel schedule_change_history
+  supabase.from('schedule_change_history').insert([
+    {
+      spreadsheet_url: urlToUse,
+      change_details: diff,
+      detected_at: new Date().toISOString()
+    }
+  ]).then(() => {
+    fetchChangeHistory(); // Refresh daftar histori setelah disimpan
+  });
+}
 
       const newCodesSet = new Set(cleanedData.map((c) => (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase()));
       const stillValidSelected = prevSelected.filter((code) => newCodesSet.has(code.toUpperCase()));
@@ -724,6 +779,7 @@ export function useKrsPlanner() {
     // lain-lain
     step,
     chatContext,
+    // historyList,
   };
 }
 
