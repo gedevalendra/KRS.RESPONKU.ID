@@ -6,8 +6,11 @@
 
 export interface Course {
   'Hari'?: string;
-  'Jam Mulai (Ex : 07:00)'?: string;
-  'Jam Berakhir (Ex: 10:00)'?: string;
+  // Nilai jam dari spreadsheet bisa berupa string rapi ("07:00") ATAU angka
+  // pecahan hari ala Excel (mis. 0.4166666666666667), tergantung format sel
+  // di Google Sheets. Lihat timeToMinutes()/formatJam() di schedule-utils.ts.
+  'Jam Mulai (Ex : 07:00)'?: string | number;
+  'Jam Berakhir (Ex: 10:00)'?: string | number;
   'Kode Mata Kuliah'?: string;
   'Nama Mata Kuliah'?: string;
   'SKS'?: number | string;

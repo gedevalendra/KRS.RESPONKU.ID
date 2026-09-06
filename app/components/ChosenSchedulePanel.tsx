@@ -12,6 +12,31 @@ interface ChosenSchedulePanelProps {
   onClear: () => void;
 }
 
+// Ubah pecahan hari ala Excel (mis. 0.041666... = 01:00, 0.416666... = 10:00)
+// menjadi format "HH:mm". Kalau nilainya sudah berupa jam yang rapi seperti
+// "07:00", nilainya dikembalikan apa adanya.
+function formatJam(value: any): string {
+  if (value === undefined || value === null || value === '') return '-';
+
+  let num: number | null = null;
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string' && /^[0-9]*\.?[0-9]+$/.test(value.trim())) {
+    num = Number(value.trim());
+  }
+
+  if (num !== null && !Number.isNaN(num)) {
+    const frac = num - Math.floor(num); // ambil bagian jamnya saja
+    const totalMinutes = Math.round(frac * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(hours)}:${pad(minutes)}`;
+  }
+
+  return String(value);
+}
+
 export default function ChosenSchedulePanel({
   chosenSchedule,
   chosenValidation,
@@ -57,8 +82,8 @@ export default function ChosenSchedulePanel({
 
         const namaMatkul = item['Nama Mata Kuliah'] || item.namaMatkul || item.matkul || 'Mata Kuliah';
         const kelas = item['Kelas'] || item.kelas || '-';
-        const jamMulai = item['Jam Mulai (Ex : 07:00)'] || item.jamMulai || item.jam_mulai || '-';
-        const jamSelesai = item['Jam Berakhir (Ex: 10:00)'] || item.jamSelesai || item.jam_selesai || '-';
+        const jamMulai = formatJam(item['Jam Mulai (Ex : 07:00)'] ?? item.jamMulai ?? item.jam_mulai);
+        const jamSelesai = formatJam(item['Jam Berakhir (Ex: 10:00)'] ?? item.jamSelesai ?? item.jam_selesai);
         const dosen = item['Dosen'] || item.dosen || '-';
 
         // Format struktur folder: -> *Nama MK* - Kelas R* - JamMulai s.d JamSelesai - NamaDosen
@@ -133,8 +158,8 @@ export default function ChosenSchedulePanel({
           const kodeMatkul = item['Kode Mata Kuliah'] || item.kodeMatkul || '-';
           const kelas = item['Kelas'] || item.kelas || '-';
           const hari = item['Hari'] || item.hari || '-';
-          const jamMulai = item['Jam Mulai (Ex : 07:00)'] || item.jamMulai || item.jam_mulai || '-';
-          const jamSelesai = item['Jam Berakhir (Ex: 10:00)'] || item.jamSelesai || item.jam_selesai || '-';
+          const jamMulai = formatJam(item['Jam Mulai (Ex : 07:00)'] ?? item.jamMulai ?? item.jam_mulai);
+          const jamSelesai = formatJam(item['Jam Berakhir (Ex: 10:00)'] ?? item.jamSelesai ?? item.jam_selesai);
 
           return (
             <div

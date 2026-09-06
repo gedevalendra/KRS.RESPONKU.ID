@@ -16,6 +16,31 @@ interface ScheduleResultSectionProps {
   onCopyText: (schedule: Course[]) => void;
 }
 
+// Ubah pecahan hari ala Excel (mis. 0.041666... = 01:00, 0.416666... = 10:00)
+// menjadi format "HH:mm". Kalau nilainya sudah berupa jam yang rapi seperti
+// "07:00", nilainya dikembalikan apa adanya.
+function formatJam(value: any): string {
+  if (value === undefined || value === null || value === '') return '-';
+
+  let num: number | null = null;
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string' && /^[0-9]*\.?[0-9]+$/.test(value.trim())) {
+    num = Number(value.trim());
+  }
+
+  if (num !== null && !Number.isNaN(num)) {
+    const frac = num - Math.floor(num); // ambil bagian jamnya saja
+    const totalMinutes = Math.round(frac * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(hours)}:${pad(minutes)}`;
+  }
+
+  return String(value);
+}
+
 export default function ScheduleResultSection({
   scheduleOptions,
   activeOption,
@@ -109,7 +134,7 @@ function ScheduleTable({ schedule }: { schedule: Course[] }) {
                 {item['Hari']}
                 <br />
                 <span className="text-xs text-blue-700">
-                  {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
+                  {formatJam(item['Jam Mulai (Ex : 07:00)'])}–{formatJam(item['Jam Berakhir (Ex: 10:00)'])}
                 </span>
               </td>
               <td className="py-3 pr-3 font-mono text-xs text-slate-500">{item['Kode Mata Kuliah']}</td>
@@ -138,7 +163,7 @@ function ScheduleCards({ schedule }: { schedule: Course[] }) {
             <span className="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded font-mono flex-shrink-0">{item['Kelas']}</span>
           </div>
           <p className="font-mono text-sm mt-2 text-blue-700">
-            {item['Hari']} · {item['Jam Mulai (Ex : 07:00)']}–{item['Jam Berakhir (Ex: 10:00)']}
+            {item['Hari']} · {formatJam(item['Jam Mulai (Ex : 07:00)'])}–{formatJam(item['Jam Berakhir (Ex: 10:00)'])}
           </p>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
             <span>{item['Kode Mata Kuliah']}</span>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { createClient } from '@supabase/supabase-js';
+import { useSession } from 'next-auth/react';
 import { 
   Link2, 
   ListChecks, 
@@ -16,11 +16,6 @@ import {
 import { useKrs } from '../context/KrsPlannerContext';
 import ChosenSchedulePanel from '../components/ChosenSchedulePanel';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
-
 const CARDS = [
   { href: '/sync', title: 'Sinkronisasi', desc: 'Hubungkan & perbarui data dari Google Sheets.', icon: Link2 },
   { href: '/pilih', title: 'Pilih Mata Kuliah', desc: 'Centang mata kuliah, lalu susun otomatis.', icon: ListChecks },
@@ -32,32 +27,12 @@ const CARDS = [
 
 export default function BerandaPage() {
   const krs = useKrs();
-  const [userName, setUserName] = useState<string | null>(null);
+  const { data: session } = useSession();
 
-  // Ambil data user & username dari Supabase Auth / tabel users_profile
-  useEffect(() => {
-    async function fetchUser() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Cek username dari tabel users_profile
-        const { data: profile } = await supabase
-          .from('users_profile')
-          .select('username')
-          .eq('id', user.id)
-          .single();
+  // Ambil nama dari session NextAuth secara sinkron
+  const rawName = session?.user?.name || session?.user?.email?.split('@')[0] || null;
+  const firstName = rawName ? rawName.split(' ')[0] : null;
 
-        if (profile?.username) {
-          setUserName(profile.username);
-        } else {
-          setUserName(user.email?.split('@')[0] || 'Pengguna');
-        }
-      }
-    }
-    fetchUser();
-  }, []);
-
-  const firstName = userName ? userName.split(' ')[0] : null;
-  // ... (lanjutan kode timer, helper, dan return JSX Anda di bawah tetap sama)
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Timer realtime tiap detik
@@ -260,7 +235,6 @@ export default function BerandaPage() {
                   <span className="text-sm font-bold text-indigo-700">
                     {ongoingClass.formattedStart} - {ongoingClass.formattedEnd}
                   </span>
-                  {/* Menampilkan persentase desimal presisi tinggi */}
                   <p className="text-xs font-medium text-indigo-600">
                     {ongoingClass.progress >= 100 ? '100' : ongoingClass.progress.toFixed(1)}% Selesai
                   </p>

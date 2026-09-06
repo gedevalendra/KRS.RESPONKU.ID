@@ -4,6 +4,17 @@
 // Hook ini menyimpan SEMUA state & logika bisnis halaman KRS planner:
 // sinkronisasi spreadsheet, pilihan mata kuliah, dosen favorit, algoritma
 // penyusunan jadwal, dan jadwal yang "dipakai".
+//
+// PERBAIKAN (anti dobel insert riwayat perubahan):
+// 1. Sebelum insert ke `schedule_change_history`, kita cek dulu record
+//    terakhir untuk `spreadsheet_url` yang sama. Kalau `change_details`-nya
+//    identik dengan diff yang baru terdeteksi, insert (dan notifikasi email)
+//    di-skip. Ini menutup celah dobel insert walau fetchSheetFromUrl
+//    kepanggil lebih dari sekali (mis. hook dipakai di 2 tempat/komponen,
+//    atau efek jalan dua kali di mode development).
+// 2. `isFetchingRef` sekarang selalu direset ke `false` lewat `finally`,
+//    supaya fetch berikutnya (realtime check / manual check) tidak
+//    terkunci selamanya setelah fetch pertama.
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -76,7 +87,6 @@ export function useKrsPlanner() {
   const { data: session } = useSession();
   const [isMounted, setIsMounted] = useState(false);
   
-  
   // --- Sinkronisasi spreadsheet & tab aktif --------------------------------
   const [sheetUrl, setSheetUrl] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -102,6 +112,25 @@ export function useKrsPlanner() {
   const [updateBadge, setUpdateBadge] = useState<UpdateBadge>('none');
   const [changeReport, setChangeReport] = useState<ChangeReport | null>(null);
   const [droppedSelection, setDroppedSelection] = useState<string[]>([]);
+
+  // --- State untuk Riwayat Perubahan dari Supabase -------------------------
+  const [historyList, setHistoryList] = useState<any[]>([]);
+
+  // Fungsi untuk mengambil riwayat perubahan dari Supabase
+  const fetchChangeHistory = async () => {
+    const { data, error } = await supabase
+      .from('schedule_change_history')
+      .select('*')
+      .order('detected_at', { ascending: false });
+    
+    if (!error && data) {
+      setHistoryList(data);
+    }
+  };
+
+  useEffect(() => {
+    fetchChangeHistory();
+  }, []);
 
   // --- Batas Maksimal SKS Kustom ------------------------------------------
   const [maxSks, setMaxSks] = useState<number>(() => {
@@ -146,8 +175,12 @@ export function useKrsPlanner() {
   // -------------------------------------------------------------------------
   // Muat semua state tersimpan saat pertama kali dibuka, lalu sinkron ulang
   // -------------------------------------------------------------------------
+// Gunakan ref untuk mencegah pemanggilan fetch ganda saat inisialisasi awal
+  const hasInitialized = useRef(false);
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || hasInitialized.current) return;
+    hasInitialized.current = true;
 
     const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
     const savedCourses = loadJSON<Course[]>(STORAGE_COURSES_KEY) || [];
@@ -179,21 +212,12 @@ export function useKrsPlanner() {
       setActiveOption(savedScheduleState.activeOption || 0);
     }
 
-    
-
     if (savedUrl) {
-
-      
       setSheetUrl(savedUrl);
       setIsLinkLocked(true);
       fetchSheetFromUrl(savedUrl, savedTab || undefined, savedCourses, savedSelected, savedChosen);
-      
     }
-    
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  
 
   useSkipMountEffect(() => {
     saveJSON(STORAGE_SELECTED_KEY, selectedCourseCodes);
@@ -245,6 +269,35 @@ export function useKrsPlanner() {
     }
   }, [scheduleOptions, activeOption]);
 
+// Buat ref lock untuk mencegah fetch ganda berjalan bersamaan
+  const isFetchingRef = useRef(false);
+
+  // Ref untuk mencegah insert riwayat perubahan yang sama terkirim dua kali
+  // dalam sesi ini (mis. karena fetchSheetFromUrl sempat terpanggil lebih
+  // dari sekali dengan hasil diff yang identik).
+  const lastInsertedChangeRef = useRef<string | null>(null);
+
+  // Cek ke Supabase: apakah diff yang baru terdeteksi ini SAMA PERSIS dengan
+  // record terakhir yang sudah tersimpan untuk spreadsheet_url ini?
+  // Kalau iya, berarti ini duplikat -> jangan insert lagi.
+  const isDuplicateChangeInDb = async (url: string, diffSignature: string): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase
+        .from('schedule_change_history')
+        .select('change_details')
+        .eq('spreadsheet_url', url)
+        .order('detected_at', { ascending: false })
+        .limit(1);
+
+      if (error || !data || data.length === 0) return false;
+
+      return JSON.stringify(data[0].change_details) === diffSignature;
+    } catch (err) {
+      console.warn('Gagal memeriksa duplikasi riwayat perubahan:', err);
+      return false;
+    }
+  };
+
   const fetchSheetFromUrl = async (
     urlOverride?: string,
     tabOverride?: string,
@@ -253,23 +306,29 @@ export function useKrsPlanner() {
     prevChosenOverride?: ChosenScheduleRecord | null,
     silent = false,
   ) => {
+    // Jika proses fetch sedang berjalan, batalkan pemanggilan berikutnya
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
+    if (isLoading && !silent) {
+      isFetchingRef.current = false;
+      return;
+    }
+
     const urlToUse = urlOverride ?? sheetUrl;
-    if (!urlToUse) return;
+    if (!urlToUse) {
+      isFetchingRef.current = false;
+      return;
+    }
+    
     if (silent) setIsCheckingRealtime(true);
     else setIsLoading(true);
+
     try {
       const targetUrl = convertToCsvUrl(urlToUse);
-      let response;
+      const response = await fetch(targetUrl);
 
-      if (session && (session as any).accessToken) {
-        response = await fetch(targetUrl, {
-          headers: { Authorization: `Bearer ${(session as any).accessToken}` },
-        });
-      } else {
-        response = await fetch(targetUrl);
-      }
-
-      if (!response.ok) throw new Error('Gagal mengunduh spreadsheet.');
+      if (!response.ok) throw new Error('Gagal mengunduh spreadsheet. Pastikan link Google Sheets publik.');
 
       const arrayBuffer = await response.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
@@ -295,64 +354,70 @@ export function useKrsPlanner() {
       const rawData = XLSX.utils.sheet_to_json<any>(ws, { range: 12 });
       const cleanedData: Course[] = rawData.filter((item) => item['Nama Mata Kuliah'] && item['Hari']);
 
-      const prevCourses = prevCoursesOverride ?? courses;
+      // Ambil data kursus sebelumnya secara langsung dari state atau localStorage terbaru
+      const currentStoredCourses = loadJSON<Course[]>(STORAGE_COURSES_KEY) || [];
+      const prevCourses = prevCoursesOverride ?? (currentStoredCourses.length > 0 ? currentStoredCourses : courses);
       const prevSelected = prevSelectedOverride ?? selectedCourseCodes;
       const prevChosen = prevChosenOverride !== undefined ? prevChosenOverride : chosenSchedule;
 
       const isFirstSync = prevCourses.length === 0;
       const diff = diffCourses(prevCourses, cleanedData);
 
+      console.log("Status Sinkronisasi:", { isFirstSync, hasChanges: diff.hasChanges, diff });
+
       if (isFirstSync) {
         setUpdateBadge('first');
         setChangeReport(null);
       } else if (!diff.hasChanges) {
-        
-        
         setUpdateBadge('same');
         setChangeReport(null);
       } else {
         setUpdateBadge('changed');
         setChangeReport(diff);
-        notifyScheduleChangeByEmail(diff);
+
+        // --- ANTI DOBEL INSERT -------------------------------------------
+        const diffSignature = JSON.stringify(diff);
+
+        // 1) Cek cepat di memori: kalau sesi ini baru saja insert diff yang
+        //    identik untuk URL yang sama, langsung skip tanpa roundtrip ke DB.
+        const memoryKey = `${urlToUse}::${diffSignature}`;
+        const alreadyInsertedInMemory = lastInsertedChangeRef.current === memoryKey;
+
+        // 2) Kalau belum ketahuan dobel dari memori, cek juga ke Supabase
+        //    (menutup celah dobel lintas komponen/tab/instance hook lain).
+        const alreadyInsertedInDb = alreadyInsertedInMemory
+          ? true
+          : await isDuplicateChangeInDb(urlToUse, diffSignature);
+
+        if (alreadyInsertedInDb) {
+          console.log('Perubahan identik sudah tercatat sebelumnya, insert & notifikasi email dilewati.');
+        } else {
+          lastInsertedChangeRef.current = memoryKey;
+          notifyScheduleChangeByEmail(diff);
+
+          // Simpan perubahan ke Supabase
+          const { error: insertError } = await supabase.from('schedule_change_history').insert([
+            {
+              spreadsheet_url: urlToUse,
+              change_details: diff,
+              detected_at: new Date().toISOString()
+            }
+          ]);
+
+          if (insertError) {
+            console.error("Gagal menyimpan riwayat ke Supabase:", insertError.message);
+            // Insert gagal -> hapus penanda memori supaya percobaan berikutnya
+            // (mis. dari retry manual) tidak ikut ke-skip.
+            if (lastInsertedChangeRef.current === memoryKey) {
+              lastInsertedChangeRef.current = null;
+            }
+          } else {
+            console.log("Berhasil mencatat perubahan jadwal ke Supabase!");
+            fetchChangeHistory();
+          }
+        }
+        // -------------------------------------------------------------------
       }
-
-      // Tambahkan state riwayat histori di dalam hook useKrsPlanner
-const [historyList, setHistoryList] = useState<any[]>([]);
-
-// Fungsi untuk mengambil riwayat dari Supabase
-const fetchChangeHistory = async () => {
-  const { data, error } = await supabase
-    .from('schedule_change_history')
-    .select('*')
-    .order('detected_at', { ascending: false });
-  
-  if (!error && data) {
-    setHistoryList(data);
-  }
-};
-
-// Panggil fetchChangeHistory di dalam useEffect saat pertama kali dimuat
-useEffect(() => {
-  fetchChangeHistory();
-}, []);
-
-// Di dalam fungsi fetchSheetFromUrl, saat perubahan terdeteksi:
-if (diff.hasChanges) {
-  setUpdateBadge('changed');
-  setChangeReport(diff);
-  notifyScheduleChangeByEmail(diff);
-
-  // Simpan riwayat perubahan ke Supabase tabel schedule_change_history
-  supabase.from('schedule_change_history').insert([
-    {
-      spreadsheet_url: urlToUse,
-      change_details: diff,
-      detected_at: new Date().toISOString()
-    }
-  ]).then(() => {
-    fetchChangeHistory(); // Refresh daftar histori setelah disimpan
-  });
-}
 
       const newCodesSet = new Set(cleanedData.map((c) => (c['Kode Mata Kuliah'] || '').toString().trim().toUpperCase()));
       const stillValidSelected = prevSelected.filter((code) => newCodesSet.has(code.toUpperCase()));
@@ -382,16 +447,18 @@ if (diff.hasChanges) {
       saveJSON(STORAGE_SELECTED_KEY, stillValidSelected);
 
       setLastCheckedAt(new Date().toISOString());
-      if (silent) setIsCheckingRealtime(false);
-      else setIsLoading(false);
     } catch (error) {
       if (silent) {
         console.warn('Pengecekan realtime gagal:', error);
-        setIsCheckingRealtime(false);
       } else {
-        alert('Gagal mengambil data dari link. Pastikan link Google Sheets publik atau Anda sudah login dengan akun berizin.');
-        setIsLoading(false);
+        alert('Gagal mengambil data dari link. Pastikan link Google Sheets publik.');
       }
+    } finally {
+      // PENTING: selalu reset flag loading & lock fetch, apa pun hasilnya,
+      // supaya pengecekan berikutnya (manual/realtime) tidak terkunci selamanya.
+      if (silent) setIsCheckingRealtime(false);
+      else setIsLoading(false);
+      isFetchingRef.current = false;
     }
   };
 
@@ -410,13 +477,18 @@ if (diff.hasChanges) {
     setUpdateBadge('none');
   };
 
-  const notifyScheduleChangeByEmail = async (diff: ChangeReport) => {
+const notifyScheduleChangeByEmail = async (diff: ChangeReport) => {
     if (!emailReminder.enabled || !emailReminder.email) return;
     try {
-      await fetch('/api/notify-schedule-change', {
+      await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailReminder.email, diff }),
+        body: JSON.stringify({ 
+          email: emailReminder.email, 
+          details: diff, // Ubah dari 'diff' menjadi 'details' agar terbaca oleh backend API
+          detectedAt: new Date().toISOString(),
+          spreadsheetUrl: sheetUrl
+        }),
       });
     } catch (err) {
       console.warn('Gagal mengirim notifikasi perubahan jadwal ke email:', err);
@@ -688,16 +760,16 @@ if (diff.hasChanges) {
             statusTerbaru: chosenValidation ? (chosenValidation.ok ? 'aman' : 'perlu-perhatian') : 'belum-dicek',
             pesan: chosenValidation?.messages || [],
           }
-        : null,
-    }),
-    [uniqueCourseList, selectedCourseCodes, totalSelectedSks, goldlistTags, scheduleOptions, chosenSchedule, chosenValidation],
-  );
-
-  return {
-    session,
-    isMounted,
-    
-    // sinkronisasi & tab
+          : null,
+        }),
+        [uniqueCourseList, selectedCourseCodes, totalSelectedSks, goldlistTags, scheduleOptions, chosenSchedule, chosenValidation],
+      );
+      
+      return {
+        session,
+        isMounted,
+        
+        // sinkronisasi & tab
     sheetUrl,
     setSheetUrl,
     sheetTabs,
@@ -712,6 +784,9 @@ if (diff.hasChanges) {
     droppedSelection,
     fetchSheetFromUrl,
     handleUnlockLink,
+
+    // riwayat histori perubahan
+    historyList,
 
     // pilihan mata kuliah & dosen favorit
     uniqueCourseList,
@@ -779,7 +854,6 @@ if (diff.hasChanges) {
     // lain-lain
     step,
     chatContext,
-    // historyList,
   };
 }
 

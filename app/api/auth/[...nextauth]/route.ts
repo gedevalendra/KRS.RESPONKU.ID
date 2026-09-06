@@ -8,8 +8,9 @@ export const authOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          // Tambahkan openid dan email di sini agar id_token dikembalikan oleh Google
           scope: "openid email profile https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
+          access_type: "offline",
+          prompt: "consent",
         },
       },
     }),
@@ -19,11 +20,14 @@ export const authOptions = {
     async jwt({ token, account }: { token: any; account: any }) {
       if (account) {
         token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.expiresAt = account.expires_at;
       }
       return token;
     },
     async session({ session, token }: { session: any; token: any }) {
       session.accessToken = token.accessToken;
+      session.error = token.error;
       return session;
     },
   },

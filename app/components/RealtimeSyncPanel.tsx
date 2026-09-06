@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { RadioTower, Mail, Loader2 } from 'lucide-react';
 import { RealtimeSettings, EmailReminderSettings } from '../lib/types';
 import { MIN_REALTIME_INTERVAL_MS } from '../lib/constants';
+import { useSession } from 'next-auth/react';
 
 interface RealtimeSyncPanelProps {
   isLinkLocked: boolean;
@@ -39,12 +40,28 @@ export default function RealtimeSyncPanel({
   lastCheckedAt,
   isCheckingRealtime,
 }: RealtimeSyncPanelProps) {
+  const { data: session } = useSession();
+  const loggedInEmail = session?.user?.email || '';
+
   const settings = realtimeSettings || { enabled: false, intervalMs: 10 * 60 * 1000 };
   const reminder = emailReminder || { enabled: false, email: '' };
 
   const matchedPreset = PRESET_INTERVALS.find((p) => p.ms === settings.intervalMs);
   const [isCustom, setIsCustom] = useState(!matchedPreset);
   const [customSeconds, setCustomSeconds] = useState(Math.round((settings.intervalMs || 60000) / 1000));
+
+  // State pilihan mode email: 'account' (email login) atau 'custom' (bebas isi)
+  const [emailMode, setEmailMode] = useState<'account' | 'custom'>(() => {
+    if (loggedInEmail && reminder.email === loggedInEmail) return 'account';
+    return reminder.email ? 'custom' : 'account';
+  });
+
+  // Jika user memilih mode akun login, pastikan email otomatis terisi email session
+  useEffect(() => {
+    if (emailMode === 'account' && loggedInEmail && reminder.email !== loggedInEmail) {
+      onChangeEmail(loggedInEmail);
+    }
+  }, [emailMode, loggedInEmail, reminder.email, onChangeEmail]);
 
   useEffect(() => {
     const isMatched = PRESET_INTERVALS.some((p) => p.ms === settings.intervalMs);
@@ -152,21 +169,61 @@ export default function RealtimeSyncPanel({
             </label>
 
             {reminder.enabled && (
-              <div className="pl-6">
-                <input
-                  type="email"
-                  placeholder="nama@email.com"
-                  value={reminder.email}
-                  onChange={(e) => onChangeEmail(e.target.value)}
-                  className={`w-full sm:w-72 border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                    emailTouched && !emailValid ? 'border-rose-300' : 'border-slate-200'
-                  }`}
-                />
-                {emailTouched && !emailValid && (
-                  <p className="text-xs mt-1 text-rose-600">Format email belum valid.</p>
+              <div className="pl-6 space-y-3">
+                {loggedInEmail ? (
+                  <div className="flex items-center gap-4 text-xs font-medium text-slate-700">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emailTargetMode"
+                        checked={emailMode === 'account'}
+                        onChange={() => {
+                          setEmailMode('account');
+                          onChangeEmail(loggedInEmail);
+                        }}
+                        className="accent-blue-600 cursor-pointer"
+                      />
+                      Gunakan email akun login ({loggedInEmail})
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emailTargetMode"
+                        checked={emailMode === 'custom'}
+                        onChange={() => {
+                          setEmailMode('custom');
+                          onChangeEmail('');
+                        }}
+                        className="accent-blue-600 cursor-pointer"
+                      />
+                      Gunakan email lain (Custom)
+                    </label>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600 font-medium">
+                    Anda belum masuk dengan akun Google. Silakan masukkan tujuan email kustom di bawah.
+                  </p>
                 )}
-                <p className="text-xs text-slate-500 mt-1.5">
-                  Email akan dikirim tiap kali pengecekan menemukan perubahan pada spreadsheet.
+
+                {(emailMode === 'custom' || !loggedInEmail) && (
+                  <div>
+                    <input
+                      type="email"
+                      placeholder="nama@email.com"
+                      value={reminder.email}
+                      onChange={(e) => onChangeEmail(e.target.value)}
+                      className={`w-full sm:w-72 border rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                        emailTouched && !emailValid ? 'border-rose-300' : 'border-slate-200'
+                      }`}
+                    />
+                    {emailTouched && !emailValid && (
+                      <p className="text-xs mt-1 text-rose-600">Format email belum valid.</p>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-xs text-slate-500">
+                  Email notifikasi perubahan jadwal akan dikirimkan ke alamat di atas secara otomatis.
                 </p>
               </div>
             )}

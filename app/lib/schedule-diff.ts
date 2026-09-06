@@ -8,6 +8,32 @@
 import { Course, ChangeReport, ChangeReportItem, ChosenValidation } from './types';
 import { courseKey, isOverlap, scheduleSks } from './schedule-utils';
 
+// Ubah pecahan hari ala Excel (mis. 0.041666... = 01:00, 0.416666... = 10:00)
+// menjadi format "HH:mm". Kalau nilainya sudah berupa jam yang rapi seperti
+// "07:00", nilainya dikembalikan apa adanya. Dipakai supaya semua pesan
+// perubahan jadwal menampilkan jam yang enak dibaca, bukan angka mentah.
+function formatJam(value: any): string {
+  if (value === undefined || value === null || value === '') return '-';
+
+  let num: number | null = null;
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string' && /^[0-9]*\.?[0-9]+$/.test(value.trim())) {
+    num = Number(value.trim());
+  }
+
+  if (num !== null && !Number.isNaN(num)) {
+    const frac = num - Math.floor(num); // ambil bagian jamnya saja
+    const totalMinutes = Math.round(frac * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(hours)}:${pad(minutes)}`;
+  }
+
+  return String(value);
+}
+
 // Bandingkan data lama vs baru: apa yang ditambahkan, dihapus, dan diubah.
 export function diffCourses(oldList: Course[], newList: Course[]): ChangeReport {
   const oldMap = new Map<string, Course>();
@@ -39,11 +65,15 @@ export function diffCourses(oldList: Course[], newList: Course[]): ChangeReport 
     if ((oldC['Hari'] || '').trim().toLowerCase() !== (newC['Hari'] || '').trim().toLowerCase()) {
       detail.push(`Hari berubah dari ${oldC['Hari'] || '-'} menjadi ${newC['Hari'] || '-'}`);
     }
-    const oldStart = oldC['Jam Mulai (Ex : 07:00)'] || '-';
-    const newStart = newC['Jam Mulai (Ex : 07:00)'] || '-';
-    const oldEnd = oldC['Jam Berakhir (Ex: 10:00)'] || '-';
-    const newEnd = newC['Jam Berakhir (Ex: 10:00)'] || '-';
-    if (oldStart !== newStart || oldEnd !== newEnd) {
+    const oldStartRaw = oldC['Jam Mulai (Ex : 07:00)'] || '-';
+    const newStartRaw = newC['Jam Mulai (Ex : 07:00)'] || '-';
+    const oldEndRaw = oldC['Jam Berakhir (Ex: 10:00)'] || '-';
+    const newEndRaw = newC['Jam Berakhir (Ex: 10:00)'] || '-';
+    if (oldStartRaw !== newStartRaw || oldEndRaw !== newEndRaw) {
+      const oldStart = formatJam(oldStartRaw);
+      const newStart = formatJam(newStartRaw);
+      const oldEnd = formatJam(oldEndRaw);
+      const newEnd = formatJam(newEndRaw);
       detail.push(`Jam berubah dari ${oldStart}–${oldEnd} menjadi ${newStart}–${newEnd}`);
     }
     if ((oldC['Dosen'] || '').trim() !== (newC['Dosen'] || '').trim()) {
@@ -103,7 +133,7 @@ export function validateChosenSchedule(chosen: Course[], newCourses: Course[], p
     const oldDay = (item['Hari'] || '').trim().toLowerCase();
     const newDay = (match['Hari'] || '').trim().toLowerCase();
     if (oldStart !== newStart || oldEnd !== newEnd || oldDay !== newDay) {
-      messages.push(`Jadwal "${item['Nama Mata Kuliah']}" berubah menjadi ${match['Hari']}, ${newStart}–${newEnd}.`);
+      messages.push(`Jadwal "${item['Nama Mata Kuliah']}" berubah menjadi ${match['Hari']}, ${formatJam(newStart)}–${formatJam(newEnd)}.`);
     }
   });
 

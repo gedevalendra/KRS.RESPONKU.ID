@@ -7,13 +7,68 @@
 import { Course } from './types';
 import { DAY_ORDER } from './constants';
 
-export function timeToMinutes(timeStr?: string): number {
-  if (!timeStr) return 0;
-  const parts = timeStr.toString().trim().split(':');
-  if (parts.length < 2) return 0;
-  const hours = parseInt(parts[0], 10) || 0;
-  const minutes = parseInt(parts[1], 10) || 0;
-  return hours * 60 + minutes;
+// PENTING: nilai jam dari spreadsheet bisa datang dalam dua bentuk —
+// 1. String rapi seperti "07:00" (kalau sel diformat sebagai teks), atau
+// 2. Angka pecahan hari ala Excel, mis. 0.041666666666666664 = 01:00,
+//    0.4166666666666667 = 10:00 (kalau sel diformat sebagai jam/waktu).
+// Sebelumnya fungsi ini cuma menangani bentuk (1) — kalau dapat bentuk (2),
+// split(':') gagal dan selalu mengembalikan 0 untuk SEMUA jam, yang bikin
+// deteksi bentrok (isOverlap) jadi tidak berfungsi sama sekali. Sekarang
+// menangani keduanya.
+export function timeToMinutes(time?: string | number): number {
+  if (time === undefined || time === null || time === '') return 0;
+
+  // Bentuk (1): string "HH:mm"
+  if (typeof time === 'string' && time.includes(':')) {
+    const parts = time.trim().split(':');
+    const hours = parseInt(parts[0], 10) || 0;
+    const minutes = parseInt(parts[1], 10) || 0;
+    return hours * 60 + minutes;
+  }
+
+  // Bentuk (2): angka Excel (number), atau string angka murni seperti
+  // "0.4166666666666667"
+  let num: number | null = null;
+  if (typeof time === 'number') {
+    num = time;
+  } else if (typeof time === 'string' && /^[0-9]*\.?[0-9]+$/.test(time.trim())) {
+    num = Number(time.trim());
+  }
+
+  if (num !== null && !Number.isNaN(num)) {
+    const frac = num - Math.floor(num); // ambil bagian jamnya saja
+    return Math.round(frac * 24 * 60);
+  }
+
+  return 0;
+}
+
+// Ubah nilai jam (string "HH:mm" ataupun angka pecahan hari ala Excel)
+// menjadi format tampilan "HH:mm" yang enak dibaca. Dipakai di semua tempat
+// yang menampilkan/menyalin teks jam ke user.
+export function formatJam(value: any): string {
+  if (value === undefined || value === null || value === '') return '-';
+
+  if (typeof value === 'string' && value.includes(':')) {
+    return value; // sudah format jam yang rapi, tidak perlu diubah
+  }
+
+  let num: number | null = null;
+  if (typeof value === 'number') {
+    num = value;
+  } else if (typeof value === 'string' && /^[0-9]*\.?[0-9]+$/.test(value.trim())) {
+    num = Number(value.trim());
+  }
+
+  if (num !== null && !Number.isNaN(num)) {
+    const totalMinutes = timeToMinutes(num);
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(hours)}:${pad(minutes)}`;
+  }
+
+  return String(value);
 }
 
 export function isOverlap(c1: Course, c2: Course): boolean {
@@ -50,7 +105,7 @@ export function buildScheduleText(schedule: Course[]): string {
     );
     text += `\n\n${day.toUpperCase()}`;
     items.forEach((item) => {
-      text += `\n${item['Jam Mulai (Ex : 07:00)']}–${item['Jam Berakhir (Ex: 10:00)']}  ${item['Nama Mata Kuliah']} (${item['Kelas'] || '-'})`;
+      text += `\n${formatJam(item['Jam Mulai (Ex : 07:00)'])}–${formatJam(item['Jam Berakhir (Ex: 10:00)'])}  ${item['Nama Mata Kuliah']} (${item['Kelas'] || '-'})`;
       text += `\n   ${item['Dosen'] || 'Dosen belum ditentukan'}`;
     });
   });
